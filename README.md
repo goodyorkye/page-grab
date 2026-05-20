@@ -243,7 +243,7 @@ const MyPlugin = {
 }
 ```
 
-详细说明见 [`plugins/plugin.template.js`](plugins/plugin.template.js)。
+详细说明见 [`test/plugins/plugin.template.js`](test/plugins/plugin.template.js)。
 
 ### 新增 API
 
@@ -258,9 +258,9 @@ const MyPlugin = {
 
 | 文件 | 采集目标 | 说明 |
 |------|---------|------|
-| [`plugins/jd-product.js`](plugins/jd-product.js) | 京东商品详情 | DOM + 价格/评价接口拦截 |
-| [`plugins/taobao-product.js`](plugins/taobao-product.js) | 淘宝商品详情 | mtop 网关接口拦截 |
-| [`plugins/plugin.template.js`](plugins/plugin.template.js) | — | 插件开发模板 |
+| [`test/plugins/jd-product.js`](test/plugins/jd-product.js) | 京东商品详情 | DOM + 价格/评价接口拦截 |
+| [`test/plugins/taobao-product.js`](test/plugins/taobao-product.js) | 淘宝商品详情 | mtop 网关接口拦截 |
+| [`test/plugins/plugin.template.js`](test/plugins/plugin.template.js) | — | 插件开发模板 |
 
 > 电商平台页面结构和接口路径随版本迭代会变化，内置插件提供的是实现思路和常见字段路径，建议通过测试页的 Network 面板确认实际接口路径后调整。
 
@@ -272,13 +272,13 @@ page-grab/
 │   ├── manifest.json
 │   ├── background.js   Service Worker，处理 tab 控制和 CDP 拦截
 │   └── content.js      注入到每个 tab，桥接 postMessage 与 Port
-├── plugins/            采集插件
-│   ├── plugin.template.js  插件开发模板
-│   ├── jd-product.js       京东商品
-│   └── taobao-product.js   淘宝商品
-└── test/               测试工具
+└── test/               测试工具 & 客户端 SDK
     ├── pagegrab.js     控制页面 SDK（含插件系统）
-    └── index.html      可视化测试页面
+    ├── index.html      可视化测试页面
+    └── plugins/        采集插件（与 pagegrab.js 同级）
+        ├── plugin.template.js  插件开发模板
+        ├── jd-product.js       京东商品
+        └── taobao-product.js   淘宝商品
 ```
 
 ## License
