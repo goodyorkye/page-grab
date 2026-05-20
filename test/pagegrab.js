@@ -192,6 +192,7 @@ class PageGrab {
   #pending  = new Map()   // callId -> { resolve, reject, timer }
   #callId   = 0
   #handlers = {}          // eventType -> Function[]
+  #plugins  = []          // 已注册插件列表（按注册顺序）
 
   constructor() {
     window.addEventListener('message', (e) => {
@@ -257,6 +258,19 @@ class PageGrab {
   on(event, handler) {
     if (!this.#handlers[event]) this.#handlers[event] = []
     this.#handlers[event].push(handler)
+    return this
+  }
+
+  /**
+   * 取消注册事件回调。
+   * @param {string}   event
+   * @param {Function} handler  必须与 on() 传入的是同一个函数引用
+   * @returns {this}
+   */
+  off(event, handler) {
+    if (this.#handlers[event]) {
+      this.#handlers[event] = this.#handlers[event].filter((h) => h !== handler)
+    }
     return this
   }
 
@@ -334,5 +348,87 @@ class PageGrab {
       tabId,
       `[...document.querySelectorAll(${JSON.stringify(selector)})].map(el => el.${prop})`
     )
+  }
+
+  // =========================================================
+  // 插件系统
+  // =========================================================
+
+  /**
+   * 注册一个采集插件。
+   *
+   * 插件格式：
+   * {
+   *   name:   string,                              // 插件唯一名称
+   *   match:  RegExp | string | (url) => boolean,  // URL 匹配规则
+   *   scrape: async (pg, url) => any,              // 采集逻辑
+   * }
+   *
+   * @param {object} plugin
+   * @returns {this}
+   */
+  use(plugin) {
+    if (!plugin?.name || !plugin?.match || typeof plugin?.scrape !== 'function') {
+      throw new Error('Plugin must have name, match, and scrape(pg, url) properties')
+    }
+    this.#plugins.push(plugin)
+    return this
+  }
+
+  /**
+   * 对指定 URL 运行匹配的插件，返回插件的采集结果。
+   *
+   * @param {string} url
+   * @param {object} [options]
+   * @param {string} [options.plugin]  指定插件名称，不传则自动按 match 匹配
+   * @returns {Promise<any>}
+   */
+  async scrape(url, { plugin: pluginName } = {}) {
+    const plugin = pluginName
+      ? this.#plugins.find((p) => p.name === pluginName)
+      : this.#plugins.find((p) => this.#testMatch(url, p.match))
+
+    if (!plugin) throw new Error(`No plugin matched for: ${url}`)
+    return plugin.scrape(this, url)
+  }
+
+  /**
+   * 等待目标 tab 中匹配指定 URL 的网络响应到达。
+   * 适用于数据通过 API 接口返回（而非 HTML 渲染）的场景。
+   *
+   * @param {number}               tabId
+   * @param {RegExp|string|Function} match   URL 匹配规则
+   * @param {object}               [options]
+   * @param {number}               [options.timeout=30000]  超时毫秒数
+   * @returns {Promise<RequestEntry>}  响应完整的 RequestEntry（含 responseBody）
+   *
+   * 示例：
+   *   const resp = await pg.waitForResponse(tabId, /api\/product\/price/)
+   *   const data = JSON.parse(resp.responseBody)
+   */
+  waitForResponse(tabId, match, { timeout = 30000 } = {}) {
+    return new Promise((resolve, reject) => {
+      const handler = ({ tabId: tid, data }) => {
+        if (tid !== tabId || !this.#testMatch(data.url, match)) return
+        clearTimeout(timer)
+        this.off('response', handler)
+        resolve(data)
+      }
+
+      const timer = setTimeout(() => {
+        this.off('response', handler)
+        reject(new Error(`waitForResponse timeout: ${match}`))
+      }, timeout)
+
+      this.on('response', handler)
+    })
+  }
+
+  // URL 匹配辅助
+  #testMatch(url, match) {
+    if (typeof match === 'function') return match(url)
+    if (match instanceof RegExp)    return match.test(url)
+    if (typeof match === 'string')  return url.includes(match)
+    return false
   }
 }

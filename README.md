@@ -193,6 +193,77 @@ await pg.execute(tabId, '[...document.querySelectorAll("h2")].map(el => el.textC
 | 需 HTTP 服务 | 控制页面必须通过 `http://` 访问，content script 不会注入到 `file://` 页面 |
 | WebSocket | 暂不支持 WebSocket 帧拦截 |
 
+## 插件系统
+
+将特定网站的采集逻辑封装为插件，注册后通过 `scrape()` 一行调用。
+
+### 注册与使用
+
+```js
+// 引入插件文件（需在 pagegrab.js 之后加载）
+// <script src="plugins/jd-product.js"></script>
+
+const pg = await PageGrab.init({ minVersion: '1.0.0' })
+pg.use(JDProductPlugin)
+pg.use(TaobaoProductPlugin)
+
+// 自动匹配插件采集
+const product = await pg.scrape('https://item.jd.com/100012345678.html')
+console.log(product.title, product.price)
+
+// 指定插件名称
+const result = await pg.scrape(url, { plugin: 'taobao-product' })
+```
+
+### 插件格式
+
+```js
+const MyPlugin = {
+  name: 'my-plugin',                        // 唯一名称
+  match: /example\.com\/item\//,            // URL 匹配（RegExp / string / Function）
+
+  async scrape(pg, url) {
+    const tabId = await pg.openTab(url)
+    try {
+      // 方式一：拦截 API 响应（适合数据由接口返回的页面）
+      const resp = await pg.waitForResponse(tabId, /api\/product/, { timeout: 15000 })
+      const data = JSON.parse(resp.responseBody)
+
+      // 方式二：读取 DOM（适合服务端渲染页面）
+      const title = await pg.querySelector(tabId, 'h1', 'textContent')
+
+      // 方式三：读取页面内嵌 JS 变量
+      const raw = await pg.execute(tabId, 'window.__INITIAL_STATE__')
+
+      return { url, title, ...data }
+    } finally {
+      pg.closeTab(tabId)
+    }
+  },
+}
+```
+
+详细说明见 [`plugins/plugin.template.js`](plugins/plugin.template.js)。
+
+### 新增 API
+
+| 方法 | 说明 |
+|------|------|
+| `pg.use(plugin)` | 注册插件 |
+| `pg.scrape(url, options?)` | 自动匹配插件并执行采集 |
+| `pg.waitForResponse(tabId, match, options?)` | 等待目标 tab 中匹配 URL 的响应到达 |
+| `pg.off(event, handler)` | 取消事件监听 |
+
+### 内置插件
+
+| 文件 | 采集目标 | 说明 |
+|------|---------|------|
+| [`plugins/jd-product.js`](plugins/jd-product.js) | 京东商品详情 | DOM + 价格/评价接口拦截 |
+| [`plugins/taobao-product.js`](plugins/taobao-product.js) | 淘宝商品详情 | mtop 网关接口拦截 |
+| [`plugins/plugin.template.js`](plugins/plugin.template.js) | — | 插件开发模板 |
+
+> 电商平台页面结构和接口路径随版本迭代会变化，内置插件提供的是实现思路和常见字段路径，建议通过测试页的 Network 面板确认实际接口路径后调整。
+
 ## 目录结构
 
 ```
@@ -201,8 +272,12 @@ page-grab/
 │   ├── manifest.json
 │   ├── background.js   Service Worker，处理 tab 控制和 CDP 拦截
 │   └── content.js      注入到每个 tab，桥接 postMessage 与 Port
+├── plugins/            采集插件
+│   ├── plugin.template.js  插件开发模板
+│   ├── jd-product.js       京东商品
+│   └── taobao-product.js   淘宝商品
 └── test/               测试工具
-    ├── pagegrab.js     控制页面 SDK（可单独复制使用）
+    ├── pagegrab.js     控制页面 SDK（含插件系统）
     └── index.html      可视化测试页面
 ```
 
