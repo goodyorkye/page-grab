@@ -1,186 +1,79 @@
-# PageGrab - Chrome 扩展设计方案
+# PageGrab 设计说明
 
-通过 Chrome Extension 在浏览器内采集目标页面的请求/响应数据，并实时回调给控制页面处理。
-
----
-
-## 架构
-
-```
-控制页面（任意 IP/地址）
-    ↕ window.postMessage
-Content Script（注入到每个 tab，充当桥）
-    ↕ chrome.runtime.Port（长连接）
-Background Service Worker
-    ↕ chrome.debugger (CDP)
-目标 Tab
-```
-
-- 控制页面与插件通过 `window.postMessage` 通信，不依赖固定 URL，局域网任意地址均可使用
-- Content script 懒建 Port，只有控制页面发消息时才真正连接，避免每个 tab 都建无用连接
-- Port 连接存在期间 service worker 保持活跃，不会被 Chrome 30 秒超时杀死
+本文记录 PageGrab 的核心架构决策与设计取舍，供希望深入理解实现原理或在此基础上二次开发的读者参考。功能使用说明见 [README.md](README.md)。
 
 ---
 
-## 目录结构
+## 为什么用 Chrome Extension，而不是 Playwright / Puppeteer
 
-```
-page-grab/
-├── DESIGN.md          # 本文档
-├── manifest.json
-├── background.js
-└── content.js
-```
+Playwright 和 Puppeteer 需要启动一个独立的浏览器进程，天然与用户当前的浏览器会话隔离，共享登录态需要额外导出/导入 Cookie，在多账号、频繁切换场景下操作繁琐。
+
+Chrome Extension 运行在用户的浏览器进程内，与普通标签页共享同一份 Cookie、Storage 和登录态，无需任何额外配置。对于「复用现有登录状态采集数据」这个需求，浏览器扩展是最自然的载体。
 
 ---
 
-## manifest.json
+## 为什么用 `chrome.debugger` 而不是 `webRequest` API
 
-```json
-{
-  "manifest_version": 3,
-  "name": "PageGrab",
-  "version": "1.0",
-  "permissions": ["tabs", "debugger"],
-  "host_permissions": ["<all_urls>"],
-  "content_scripts": [{
-    "matches": ["<all_urls>"],
-    "js": ["content.js"]
-  }],
-  "background": {
-    "service_worker": "background.js"
-  }
-}
-```
+`webRequest` / `declarativeNetRequest` 是拦截请求的常规方案，但它**无法获取响应体**，只能拿到请求/响应的元信息（URL、状态码、Headers）。
 
-**说明：**
-- 无需 `externally_connectable`，控制页面通过 `postMessage` 通信，不受 URL 限制
-- `debugger` 权限用于挂载 CDP，拦截请求/响应体
-- `host_permissions: <all_urls>` 允许 debugger 附加到任意域名的 tab
+`chrome.debugger` 暴露了 Chrome DevTools Protocol（CDP），通过 `Network.getResponseBody` 可以完整读取响应体。这是在扩展内获取响应体的唯一官方途径。代价是目标 tab 顶部会出现「正受到自动测试软件控制」横幅，属于 Chrome 强制行为，无法去除。
 
 ---
 
-## background.js 核心逻辑
+## 为什么能捕获页面自身的初始文档请求
 
-### 数据结构
+直接用 `chrome.tabs.create({ url })` 打开目标页面，debugger 附加时页面已经开始加载，初始 HTML 文档请求会被遗漏。
 
-```
-sessions: Map<tabId, { port, pending: Map<requestId, RequestEntry> }>
-```
+PageGrab 的做法：
 
-### 消息协议
+1. 先创建一个 `about:blank` 空白 tab（加载极快，几乎无延迟）
+2. 立即 attach debugger 并 `Network.enable`
+3. 再执行 `Page.navigate` 跳转到目标 URL
 
-控制页面 → 插件：
-
-| action | 参数 | 说明 |
-|--------|------|------|
-| `open` | `url` | 打开目标 tab 并开始拦截 |
-| `close` | `tabId` | 关闭目标 tab，停止拦截 |
-
-插件 → 控制页面：
-
-| type | 数据 | 说明 |
-|------|------|------|
-| `opened` | `tabId` | tab 已打开 |
-| `request` | RequestEntry | 请求发出时立即回调 |
-| `response` | RequestEntry | 响应体获取完成后回调 |
-
-### RequestEntry 结构
-
-```js
-{
-  requestId,       // CDP 内部 ID
-  url,
-  method,          // GET / POST / ...
-  requestHeaders,
-  requestBody,     // POST body，可能为 null
-  timestamp,
-  status,          // HTTP 状态码，响应回来后填充
-  responseHeaders,
-  mimeType,
-  responseBody,    // 响应体，可能为 null（见下方过滤策略）
-}
-```
-
-### 响应体过滤策略
-
-`Network.getResponseBody` 对大文件（图片、视频、大二进制）可能失败。
-
-**只对以下 mimeType 尝试获取响应体：**
-
-```js
-const FETCHABLE_MIME = [
-  'application/json',
-  'application/x-www-form-urlencoded',
-  'text/html',
-  'text/plain',
-  'text/xml',
-  'application/xml',
-]
-```
-
-其他 mimeType（图片、字体、视频等）跳过响应体获取，但基本请求信息（url、method、status、headers）**始终保留**，`responseBody` 置为 `null`。
+这样 debugger 在页面真正开始网络请求前已就位，初始文档请求同样可以被捕获。
 
 ---
 
-## content.js 桥接逻辑
+## 为什么用 postMessage 而不是 `externally_connectable`
 
-- 注入到所有页面
-- 懒建 Port：只有页面调用 `postMessage` 时才连接 background，目标 tab 不会建连接
-- 双向转发：`postMessage ↔ Port`
+`externally_connectable` 允许指定的网页直接调用 `chrome.runtime.sendMessage`，是更「正式」的扩展通信方式，但有一个关键限制：**`matches` 字段只能填写固定 URL 模式，不支持通配所有来源**（填 `<all_urls>` 会报错，填 `*://*/*` 实测在部分版本不生效）。
 
----
+控制页面的地址是不固定的——开发时可能是 `localhost`，生产时可能是局域网的某个 IP，不能提前枚举。
 
-## 控制页面调用方式
-
-```js
-// 发消息给插件
-function sendToExtension(payload) {
-  window.postMessage({ to: 'extension', payload }, '*')
-}
-
-// 接收插件回调
-window.addEventListener('message', (e) => {
-  if (e.data?.from !== 'extension') return
-  const msg = e.data.payload
-
-  switch (msg.type) {
-    case 'opened':
-      console.log('Tab opened, tabId:', msg.tabId)
-      break
-    case 'request':
-      // 请求发出时立即回调，此时无响应数据
-      handleRequest(msg.tabId, msg.data)
-      break
-    case 'response':
-      // 响应完成后回调，包含状态码、headers、body（如能获取）
-      handleResponse(msg.tabId, msg.data)
-      break
-  }
-})
-
-// 打开目标页面，开始采集
-sendToExtension({ action: 'open', url: 'https://target.com' })
-
-// 采集完毕，关闭 tab
-sendToExtension({ action: 'close', tabId: 123 })
-```
+`window.postMessage` 没有这个限制。Content script 注入到每个 tab 后，监听页面的 `postMessage`，再通过 `chrome.runtime.Port` 转发给 background，完整绕开 URL 白名单问题。
 
 ---
 
-## 已知限制
+## Content Script 的懒连接设计
 
-| 限制 | 说明 |
-|------|------|
-| 调试横幅 | `chrome.debugger` 会在目标 tab 顶部显示"正受到自动测试软件控制"，Chrome 强制行为无法去除 |
-| 大响应体 | 图片、视频等大文件无法获取响应体，已通过 mimeType 过滤处理 |
-| WebSocket | 暂不支持，后续可通过 `Network.webSocketFrameReceived` 扩展 |
-| 所有 tab 关闭 | service worker 可能被终止，重新打开控制页面后自动恢复 |
+Content script 注入到浏览器内所有 tab（`matches: <all_urls>`）。如果每个 tab 注入时都立刻建立 Port 连接，会产生大量无意义的长连接，也让 service worker 无法正常休眠。
+
+实际实现中，content script 只在**收到控制页面第一条 postMessage 时**才建立 Port。目标 tab 本身不会向 background 发起任何连接，Port 只存在于控制页面所在的 tab 与 background 之间。
+
+`ping` 消息（插件检测）是唯一的例外：content script 直接回复，完全不经过 background，响应极快且不影响 service worker 状态。
 
 ---
 
-## 后续扩展方向
+## Service Worker 的生命周期管理
 
-- [ ] 支持 WebSocket 帧拦截
-- [ ] 控制页面 UI：请求列表、过滤、导出
-- [ ] 支持修改请求头/响应（需要额外 CDP 命令）
+Manifest V3 的 background service worker 在空闲约 30 秒后会被 Chrome 终止。对于需要持续监听采集事件的场景，这是一个潜在问题。
+
+PageGrab 利用了一个规则：**有打开的 Port 连接时，service worker 不会被终止**。控制页面的 tab 打开期间，Port 连接持续存在，service worker 始终保持活跃。用户关闭控制页面后，service worker 可以正常休眠，下次打开时自动重启，不需要任何心跳保活机制。
+
+---
+
+## 响应体的 mimeType 过滤策略
+
+`Network.getResponseBody` 对图片、视频、字体等二进制资源调用时会失败或返回 base64 编码的大体积数据，对采集场景没有价值。
+
+PageGrab 只对文本类 mimeType（JSON、HTML、XML、纯文本、表单编码）尝试获取响应体，其余类型跳过。即使跳过响应体，该请求的基础信息（URL、method、status、headers）仍然完整回调，不会丢失记录。
+
+---
+
+## 插件系统的设计思路
+
+不同网站的采集逻辑差异很大（有的靠拦截接口、有的靠读 DOM、有的靠读页面内嵌 JS 变量），如果全部写在同一个文件里，代码会快速膨胀且难以维护。
+
+插件系统将「URL 匹配规则」和「采集逻辑」封装在一个对象里，通过 `pg.use()` 注册后，`pg.scrape(url)` 自动匹配并调用，调用方无需感知具体实现。插件以独立文件分发，按需引入，不影响核心 SDK 体积。
+
+`waitForResponse(tabId, match, options)` 是插件系统的关键 API：它让插件能够「等待某个接口的响应到达再继续」，将异步的网络事件转换为 Promise，使插件逻辑可以用线性的 async/await 风格编写。
