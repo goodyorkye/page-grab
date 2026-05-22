@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>PageGrab</title>
+  <script src="pagegrab.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 12px;
+      background: #1a1a1a;
+      color: #d4d4d4;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ---- Toolbar ---- */
+    .toolbar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: #252525;
+      border-bottom: 1px solid #333;
+    }
+    .toolbar-title { color: #569cd6; font-weight: bold; font-size: 13px; white-space: nowrap; }
+    .toolbar input[type=text] {
+      flex: 1;
+      padding: 5px 10px;
+      background: #2d2d2d;
+      border: 1px solid #3c3c3c;
+      border-radius: 3px;
+      color: #d4d4d4;
+      font-family: inherit;
+      font-size: 12px;
+      min-width: 0;
+    }
+    .toolbar input[type=text]:focus { outline: none; border-color: #569cd6; }
+
+    button {
+      padding: 5px 12px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .btn-primary       { background: #0e639c; color: #fff; }
+    .btn-primary:hover { background: #1177bb; }
+    .btn-secondary       { background: #3c3c3c; color: #ccc; }
+    .btn-secondary:hover { background: #4a4a4a; }
+    .btn-run       { background: #1a6b3c; color: #9cdcfe; }
+    .btn-run:hover { background: #1e8048; }
+
+    /* ---- Sessions ---- */
+    .sessions {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: #1e1e1e;
+      border-bottom: 1px solid #2d2d2d;
+      min-height: 32px;
+      flex-wrap: wrap;
+    }
+    .sessions-label { color: #6a6a6a; font-size: 11px; }
+    .session-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      background: #1e3a5f;
+      border: 1px solid #264f78;
+      border-radius: 10px;
+      color: #9cdcfe;
+      font-size: 11px;
+    }
+    .session-tag-close {
+      padding: 0 2px;
+      background: none;
+      border: none;
+      color: #6a6a6a;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+    }
+    .session-tag-close:hover { color: #f48771; }
+
+    /* ---- Main ---- */
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ---- Request log ---- */
+    .request-log-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .request-log-header {
+      flex-shrink: 0;
+      display: grid;
+      grid-template-columns: 52px 54px minmax(0,1fr) 52px 140px 72px;
+      padding: 4px 14px;
+      background: #252525;
+      border-bottom: 1px solid #333;
+      color: #6a6a6a;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .request-log { flex: 1; overflow-y: auto; }
+    .request-log-empty {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #444;
+    }
+
+    /* ---- Log row ---- */
+    .log-row { border-bottom: 1px solid #252525; }
+    .log-row-summary {
+      display: grid;
+      grid-template-columns: 52px 54px minmax(0,1fr) 52px 140px 72px;
+      padding: 4px 14px;
+      cursor: pointer;
+      align-items: center;
+    }
+    .log-row-summary:hover { background: #2a2a2a; }
+    .log-row.pending .log-row-summary { opacity: 0.55; }
+    .log-row-detail {
+      display: none;
+      padding: 10px 14px 14px;
+      background: #1e2a38;
+      border-top: 1px solid #1e3a5f;
+    }
+    .log-row.expanded .log-row-detail { display: block; }
+
+    /* Summary cells */
+    .col-tab    { color: #6a6a6a; }
+    .col-method { font-weight: bold; }
+    .col-url    { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d4d4d4; padding: 0 8px; }
+    .col-mime   { color: #6a6a6a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px; }
+    .col-time   { color: #6a6a6a; text-align: right; }
+
+    .method-get    { color: #4ec9b0; }
+    .method-post   { color: #ce9178; }
+    .method-put    { color: #569cd6; }
+    .method-delete { color: #f48771; }
+    .method-other  { color: #c586c0; }
+
+    .status-2xx  { color: #4ec9b0; }
+    .status-3xx  { color: #dcdcaa; }
+    .status-4xx  { color: #f48771; }
+    .status-5xx  { color: #f48771; }
+    .status-err  { color: #f48771; font-style: italic; }
+    .status-null { color: #555; }
+
+    /* Detail panel */
+    .detail-section { margin-bottom: 10px; }
+    .detail-section:last-child { margin-bottom: 0; }
+    .detail-label { color: #6a9fb5; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .detail-url   { color: #9cdcfe; word-break: break-all; }
+    .detail-pre {
+      background: #111;
+      border: 1px solid #2d2d2d;
+      border-radius: 2px;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: #ce9178;
+      max-height: 200px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .detail-empty { color: #444; font-style: italic; }
+
+    /* ---- Exec panel ---- */
+    .exec-panel {
+      flex-shrink: 0;
+      border-top: 2px solid #333;
+      background: #1e1e1e;
+    }
+    .exec-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: #252525;
+      border-bottom: 1px solid #333;
+      cursor: pointer;
+      user-select: none;
+    }
+    .exec-panel-title  { color: #dcdcaa; font-size: 11px; font-weight: bold; flex: 1; }
+    .exec-panel-toggle { color: #666; font-size: 10px; }
+    .exec-panel-body {
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .exec-panel.collapsed .exec-panel-body { display: none; }
+
+    .exec-row   { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .exec-label { color: #6a6a6a; font-size: 11px; white-space: nowrap; }
+
+    select {
+      padding: 4px 8px;
+      background: #2d2d2d;
+      border: 1px solid #3c3c3c;
+      border-radius: 3px;
+      color: #d4d4d4;
+      font-family: inherit;
+      font-size: 12px;
+    }
+    select:focus { outline: none; border-color: #569cd6; }
+
+    textarea {
+      width: 100%;
+      padding: 6px 10px;
+      background: #111;
+      border: 1px solid #3c3c3c;
+      border-radius: 3px;
+      color: #ce9178;
+      font-family: inherit;
+      font-size: 12px;
+      resize: vertical;
+      min-height: 52px;
+    }
+    textarea:focus { outline: none; border-color: #569cd6; }
+
+    .exec-result {
+      background: #111;
+      border: 1px solid #2d2d2d;
+      border-radius: 3px;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: #4ec9b0;
+      max-height: 120px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      min-height: 28px;
+    }
+    .exec-result.error { color: #f48771; }
+    .exec-result.empty { color: #444; font-style: italic; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #1a1a1a; }
+    ::-webkit-scrollbar-thumb { background: #3c3c3c; border-radius: 3px; }
+
+    /* Status bar */
+    .status-bar {
+      flex-shrink: 0;
+      padding: 3px 14px;
+      background: #007acc;
+      color: rgba(255,255,255,0.85);
+      font-size: 11px;
+    }
+    .status-bar.warn  { background: #b5770d; }
+    .status-bar.error { background: #8b2020; }
+    .status-bar.idle  { background: #3c3c3c; }
+
+    /* Install hint */
+    .install-hint {
+      padding: 8px 14px;
+      background: #2d2d00;
+      border-bottom: 1px solid #555500;
+      color: #dcdcaa;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+    .install-hint b { color: #fff; }
+    .install-hint.hidden { display: none; }
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span class="toolbar-title">PageGrab</span>
+  <input type="text" id="url-input" placeholder="输入目标页面 URL..." value="https://httpbin.org/anything" />
+  <button class="btn-primary" onclick="openTab()">打开采集</button>
+  <button class="btn-secondary" onclick="clearLog()">清空</button>
+  <button class="btn-secondary" onclick="exportLog()">导出 JSON</button>
+</div>
+
+<div class="install-hint" id="install-hint">
+  <b>安装说明：</b>
+  chrome://extensions → 开启「开发者模式」→「加载已解压的扩展程序」→ 选 <b>extension/</b> 目录，安装后刷新。
+  本页面需通过 HTTP 访问（不支持 file://），可用 <b>npx serve .</b> 或 <b>python3 -m http.server 8080</b> 启动。
+</div>
+
+<div class="sessions" id="sessions">
+  <span class="sessions-label">采集中：</span>
+  <span id="no-session" style="color:#444">暂无</span>
+</div>
+
+<div class="main">
+  <div class="request-log-wrap">
+    <div class="request-log-header">
+      <span>Tab</span>
+      <span>Method</span>
+      <span style="padding:0 8px">URL</span>
+      <span>Status</span>
+      <span style="padding:0 4px">Type</span>
+      <span style="text-align:right">Time</span>
+    </div>
+    <div class="request-log" id="request-log">
+      <div class="request-log-empty">等待请求...</div>
+    </div>
+  </div>
+
+  <!-- 执行面板 -->
+  <div class="exec-panel" id="exec-panel">
+    <div class="exec-panel-header" onclick="toggleExecPanel()">
+      <span class="exec-panel-title">执行控制台</span>
+      <span class="exec-panel-toggle" id="exec-panel-toggle">▲</span>
+    </div>
+    <div class="exec-panel-body">
+      <div class="exec-row">
+        <span class="exec-label">Tab</span>
+        <select id="tab-select"><option value="">选择 Tab</option></select>
+        <span class="exec-label">预设</span>
+        <select id="preset-select" onchange="onPresetChange(this.value)">
+          <option value="">自定义</option>
+          <option value="html">获取渲染后 HTML</option>
+          <option value="title">获取页面标题</option>
+          <option value="links">获取所有链接</option>
+          <option value="images">获取所有图片 src</option>
+          <option value="qs">querySelector</option>
+          <option value="qsa">querySelectorAll</option>
+        </select>
+        <input type="text" id="selector-input" placeholder="CSS 选择器" style="display:none;width:180px" />
+        <select id="prop-select" style="display:none">
+          <option value="outerHTML">outerHTML</option>
+          <option value="textContent">textContent</option>
+          <option value="innerHTML">innerHTML</option>
+          <option value="value">value</option>
+          <option value="src">src</option>
+          <option value="href">href</option>
+        </select>
+        <button class="btn-run" onclick="runExpr()">执行</button>
+      </div>
+      <textarea id="expr-input" placeholder="输入 JS 表达式，结果需可 JSON 序列化&#10;示例：document.title&#10;示例：[...document.querySelectorAll('h1')].map(el => el.textContent)"></textarea>
+      <div class="exec-result empty" id="expr-result">结果将显示在这里</div>
+    </div>
+  </div>
+</div>
+
+<div class="status-bar idle" id="status-bar">插件未连接，请确认已安装扩展并通过 HTTP 服务访问本页</div>
+
+<script>
+  let pg = null
+
+  const requestLog  = []                // 所有响应完整的请求记录
+  const sessions    = {}                // tabId -> url
+  const pendingMap  = new Map()         // `${tabId}:${requestId}` -> DOM 行元素
+
+  // ---- 初始化 ----
+
+  PageGrab.init({
+    minVersion: '1.0.0',
+    downloadUrl: '',
+  }).then((instance) => {
+    if (!instance) return
+    pg = instance
+    onConnected()
+    pg
+      .on('request',    ({ tabId, data }) => addRequestRow(tabId, data))
+      .on('response',   ({ tabId, data }) => updateRequestRow(tabId, data))
+      .on('tab_closed', ({ tabId })       => onTabClosed(tabId))
+      .on('error',      ({ error })       => setStatus(`错误: ${error}`, 'error'))
+      .on('disconnected', ()              => setStatus('与插件的连接已断开，请刷新页面', 'warn'))
+  })
+
+  // ---- Tab 操作 ----
+
+  async function openTab() {
+    if (!pg) return setStatus('插件未就绪，请先安装扩展并刷新页面', 'warn')
+    const url = document.getElementById('url-input').value.trim()
+    if (!url) return alert('请输入 URL')
+    if (!/^https?:\/\//.test(url)) return alert('URL 需以 http:// 或 https:// 开头')
+    setStatus(`正在打开 ${url}...`)
+    try {
+      const tabId = await pg.openTab(url)
+      sessions[tabId] = url
+      renderSessions()
+      setStatus(`Tab #${tabId} 已打开，正在采集...`)
+    } catch (err) {
+      setStatus(`打开失败: ${err.message}`, 'error')
+    }
+  }
+
+  function closeTab(tabId) {
+    pg.closeTab(tabId)
+    delete sessions[tabId]
+    renderSessions()
+  }
+
+  function onTabClosed(tabId) {
+    delete sessions[tabId]
+    renderSessions()
+    setStatus(`Tab #${tabId} 已关闭`, 'idle')
+  }
+
+  // ---- Sessions ----
+
+  function renderSessions() {
+    const wrap = document.getElementById('sessions')
+    wrap.querySelectorAll('.session-tag').forEach(el => el.remove())
+    const noSession = document.getElementById('no-session')
+    const ids = Object.keys(sessions)
+
+    const tabSelect = document.getElementById('tab-select')
+    const prevTab   = tabSelect.value
+    tabSelect.innerHTML = '<option value="">选择 Tab</option>'
+
+    if (ids.length === 0) {
+      noSession.style.display = ''
+    } else {
+      noSession.style.display = 'none'
+      ids.forEach(tabId => {
+        const label = (sessions[tabId] || '').replace(/^https?:\/\//, '').substring(0, 50)
+
+        const tag = document.createElement('span')
+        tag.className = 'session-tag'
+        tag.innerHTML = `#${tabId} ${esc(label)}<button class="session-tag-close" onclick="closeTab(${tabId})" title="关闭">×</button>`
+        wrap.appendChild(tag)
+
+        const opt = document.createElement('option')
+        opt.value = tabId
+        opt.textContent = `#${tabId} ${label}`
+        tabSelect.appendChild(opt)
+      })
+      tabSelect.value = (prevTab && sessions[prevTab]) ? prevTab : ids[0]
+    }
+  }
+
+  // ---- 请求日志 ----
+
+  function addRequestRow(tabId, data) {
+    const key = `${tabId}:${data.requestId}`
+    const el  = buildLogRow(tabId, data, true)
+    pendingMap.set(key, el)
+    appendToLog(el)
+  }
+
+  function updateRequestRow(tabId, data) {
+    const key      = `${tabId}:${data.requestId}`
+    const existing = pendingMap.get(key)
+    if (existing) {
+      refreshLogRow(existing, tabId, data)
+      existing.classList.remove('pending')
+      pendingMap.delete(key)
+    } else {
+      appendToLog(buildLogRow(tabId, data, false))
+    }
+    requestLog.push({ tabId, ...data })
+  }
+
+  function appendToLog(el) {
+    const log   = document.getElementById('request-log')
+    const empty = log.querySelector('.request-log-empty')
+    if (empty) empty.remove()
+    log.appendChild(el)
+    log.scrollTop = log.scrollHeight
+  }
+
+  function buildLogRow(tabId, data, isPending) {
+    const el = document.createElement('div')
+    el.className = 'log-row' + (isPending ? ' pending' : '')
+    el.innerHTML = summaryHTML(tabId, data) + `<div class="log-row-detail">${detailHTML(data)}</div>`
+    el.querySelector('.log-row-summary').addEventListener('click', () => el.classList.toggle('expanded'))
+    return el
+  }
+
+  function refreshLogRow(el, tabId, data) {
+    el.querySelector('.log-row-summary').outerHTML = summaryHTML(tabId, data)
+    el.querySelector('.log-row-detail').innerHTML  = detailHTML(data)
+    el.querySelector('.log-row-summary').addEventListener('click', () => el.classList.toggle('expanded'))
+  }
+
+  function summaryHTML(tabId, data) {
+    const method      = data.method || '—'
+    const methodClass = { GET: 'method-get', POST: 'method-post', PUT: 'method-put', DELETE: 'method-delete' }[method] || 'method-other'
+
+    let statusClass = 'status-null', statusText = '—'
+    if (data.errorText)       { statusClass = 'status-err'; statusText = 'ERR' }
+    else if (data.status != null) { statusClass = `status-${Math.floor(data.status / 100)}xx`; statusText = data.status }
+
+    const mime = (data.mimeType || '').replace(/;.*/, '') || '—'
+    const time = data.timestamp
+      ? new Date(data.timestamp * 1000).toLocaleTimeString('zh-CN', { hour12: false })
+      : '—'
+
+    return `<div class="log-row-summary">
+      <span class="col-tab">#${tabId}</span>
+      <span class="col-method ${methodClass}">${method}</span>
+      <span class="col-url" title="${esc(data.url)}">${esc(data.url)}</span>
+      <span class="${statusClass}">${statusText}</span>
+      <span class="col-mime" title="${esc(mime)}">${esc(mime)}</span>
+      <span class="col-time">${time}</span>
+    </div>`
+  }
+
+  function detailHTML(data) {
+    const section = (label, content) =>
+      `<div class="detail-section"><div class="detail-label">${label}</div>${content}</div>`
+
+    const pre = (val) => {
+      if (val == null) return '<div class="detail-empty">—</div>'
+      let str = typeof val === 'string' ? val : JSON.stringify(val, null, 2)
+      try { str = JSON.stringify(JSON.parse(str), null, 2) } catch (_) {}
+      return `<pre class="detail-pre">${esc(str)}</pre>`
+    }
+
+    return [
+      section('URL', `<div class="detail-url">${esc(data.url || '')}</div>`),
+      data.requestBody != null ? section('Request Body',    pre(data.requestBody))    : '',
+      section('Request Headers', pre(data.requestHeaders)),
+      data.responseHeaders     ? section('Response Headers', pre(data.responseHeaders)) : '',
+      data.status != null      ? section(`Response Body${data.responseBody == null ? ' (未获取)' : ''}`, pre(data.responseBody)) : '',
+      data.errorText           ? section('Error', `<div class="detail-empty">${esc(data.errorText)}</div>`) : '',
+    ].join('')
+  }
+
+  // ---- 执行面板 ----
+
+  const EXPR_PRESETS = {
+    html:   `document.documentElement.outerHTML`,
+    title:  `document.title`,
+    links:  `[...document.querySelectorAll('a')].map(a => a.href)`,
+    images: `[...document.querySelectorAll('img')].map(img => img.src)`,
+  }
+
+  function onPresetChange(val) {
+    const exprInput    = document.getElementById('expr-input')
+    const selectorInput = document.getElementById('selector-input')
+    const propSelect   = document.getElementById('prop-select')
+    const needsSelector = val === 'qs' || val === 'qsa'
+
+    selectorInput.style.display = needsSelector ? '' : 'none'
+    propSelect.style.display    = needsSelector ? '' : 'none'
+
+    if (EXPR_PRESETS[val])  exprInput.value = EXPR_PRESETS[val]
+    else if (needsSelector) syncSelectorExpr(val)
+    else                    exprInput.value = ''
+  }
+
+  function syncSelectorExpr(preset) {
+    const selector = document.getElementById('selector-input').value || '.selector'
+    const prop     = document.getElementById('prop-select').value
+    const expr     = document.getElementById('expr-input')
+    if (preset === 'qs') {
+      expr.value = `(el => el ? el.${prop} : null)(document.querySelector(${JSON.stringify(selector)}))`
+    } else if (preset === 'qsa') {
+      expr.value = `[...document.querySelectorAll(${JSON.stringify(selector)})].map(el => el.${prop})`
+    }
+  }
+
+  document.getElementById('selector-input').addEventListener('input', () => {
+    const preset = document.getElementById('preset-select').value
+    if (preset === 'qs' || preset === 'qsa') syncSelectorExpr(preset)
+  })
+  document.getElementById('prop-select').addEventListener('change', () => {
+    const preset = document.getElementById('preset-select').value
+    if (preset === 'qs' || preset === 'qsa') syncSelectorExpr(preset)
+  })
+
+  async function runExpr() {
+    if (!pg) return setOutput('插件未就绪', 'error')
+    const tabId = parseInt(document.getElementById('tab-select').value)
+    const expr  = document.getElementById('expr-input').value.trim()
+    if (!tabId) return setOutput('请先选择一个 Tab', 'error')
+    if (!expr)  return setOutput('请输入 JS 表达式', 'error')
+
+    setOutput('执行中...', 'empty')
+    try {
+      const result = await pg.execute(tabId, expr)
+      setOutput(typeof result === 'string' ? result : JSON.stringify(result, null, 2))
+    } catch (err) {
+      setOutput(err.message, 'error')
+    }
+  }
+
+  function setOutput(text, state = '') {
+    const el = document.getElementById('expr-result')
+    el.textContent = text
+    el.className   = 'exec-result' + (state ? ` ${state}` : '')
+  }
+
+  function toggleExecPanel() {
+    const panel  = document.getElementById('exec-panel')
+    const toggle = document.getElementById('exec-panel-toggle')
+    panel.classList.toggle('collapsed')
+    toggle.textContent = panel.classList.contains('collapsed') ? '▼' : '▲'
+  }
+
+  document.getElementById('expr-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runExpr()
+  })
+
+  // ---- 工具 ----
+
+  function clearLog() {
+    requestLog.length = 0
+    pendingMap.clear()
+    document.getElementById('request-log').innerHTML = '<div class="request-log-empty">等待请求...</div>'
+  }
+
+  function exportLog() {
+    const a = Object.assign(document.createElement('a'), {
+      href:     URL.createObjectURL(new Blob([JSON.stringify(requestLog, null, 2)], { type: 'application/json' })),
+      download: `pagegrab-${Date.now()}.json`,
+    })
+    a.click()
+  }
+
+  function setStatus(text, level = 'ok') {
+    const bar = document.getElementById('status-bar')
+    bar.textContent = text
+    bar.className   = 'status-bar' + (level !== 'ok' ? ` ${level}` : '')
+  }
+
+  function onConnected() {
+    document.getElementById('install-hint').classList.add('hidden')
+    setStatus('插件已连接，就绪')
+  }
+
+  function esc(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  }
+</script>
+</body>
+</html>

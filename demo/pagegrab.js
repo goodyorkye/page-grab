@@ -29,6 +29,26 @@
  *
  * ─────────────────────────────────────────────────────────────
  */
+function parseVersion(version) {
+  const parts = String(version).split('.').map((n) => parseInt(n, 10) || 0)
+  while (parts.length < 3) parts.push(0)
+  return parts.slice(0, 3)
+}
+
+function matchUrl(url, match) {
+  if (typeof match === 'function') return match(url)
+  if (match && typeof match.test === 'function') {
+    if (typeof match.lastIndex === 'number') match.lastIndex = 0
+    return match.test(url)
+  }
+  if (typeof match === 'string') return url.includes(match)
+  return false
+}
+
+function findMatchingResponse(entries, match) {
+  return entries.find((entry) => matchUrl(entry.url, match)) ?? null
+}
+
 class PageGrab {
 
   // =========================================================
@@ -45,11 +65,18 @@ class PageGrab {
   static detect(timeout = 2000) {
     return new Promise((resolve) => {
       let done = false
+      const retryInterval = Math.max(20, Math.min(250, Math.floor(timeout / 4) || 20))
+
+      function cleanup() {
+        clearTimeout(timer)
+        clearInterval(interval)
+        window.removeEventListener('message', onMessage)
+      }
 
       const timer = setTimeout(() => {
         if (done) return
         done = true
-        window.removeEventListener('message', onMessage)
+        cleanup()
         resolve({ installed: false, version: null })
       }, timeout)
 
@@ -58,13 +85,18 @@ class PageGrab {
         if (e.data.payload?.type !== 'pong') return
         if (done) return
         done = true
-        clearTimeout(timer)
-        window.removeEventListener('message', onMessage)
+        cleanup()
         resolve({ installed: true, version: e.data.payload.version ?? null })
       }
 
+      function sendPing() {
+        if (done) return
+        window.postMessage({ to: 'extension', payload: { action: 'ping' } }, '*')
+      }
+
+      const interval = setInterval(sendPing, retryInterval)
       window.addEventListener('message', onMessage)
-      window.postMessage({ to: 'extension', payload: { action: 'ping' } }, '*')
+      sendPing()
     })
   }
 
@@ -77,9 +109,8 @@ class PageGrab {
    * @returns {boolean}
    */
   static meetsMinVersion(version, minVersion) {
-    const parse = (v) => String(v).split('.').map((n) => parseInt(n, 10) || 0)
-    const [a1, a2, a3] = parse(version)
-    const [b1, b2, b3] = parse(minVersion)
+    const [a1, a2, a3] = parseVersion(version)
+    const [b1, b2, b3] = parseVersion(minVersion)
     if (a1 !== b1) return a1 > b1
     if (a2 !== b2) return a2 > b2
     return a3 >= b3
@@ -193,6 +224,7 @@ class PageGrab {
   #callId   = 0
   #handlers = {}          // eventType -> Function[]
   #plugins  = []          // 已注册插件列表（按注册顺序）
+  #responses = new Map()  // tabId -> recent response entries
 
   constructor() {
     window.addEventListener('message', (e) => {
@@ -220,6 +252,13 @@ class PageGrab {
   }
 
   #dispatch(msg) {
+    if (msg.type === 'response' && msg.tabId != null && msg.data) {
+      this.#rememberResponse(msg.tabId, msg.data)
+    }
+    if (msg.type === 'tab_closed' && msg.tabId != null) {
+      this.#responses.delete(msg.tabId)
+    }
+
     // 解决等待中的 Promise
     if (msg.callId != null) {
       const p = this.#pending.get(msg.callId)
@@ -233,6 +272,13 @@ class PageGrab {
     // 触发事件回调
     const handlers = this.#handlers[msg.type]
     if (Array.isArray(handlers)) handlers.forEach((h) => h(msg))
+  }
+
+  #rememberResponse(tabId, data) {
+    const list = this.#responses.get(tabId) ?? []
+    list.push(data)
+    if (list.length > 200) list.shift()
+    this.#responses.set(tabId, list)
   }
 
   // ---- 事件 ----
@@ -290,6 +336,7 @@ class PageGrab {
    * @param {number} tabId
    */
   closeTab(tabId) {
+    this.#responses.delete(tabId)
     this.#send({ action: 'close', tabId })
   }
 
@@ -407,6 +454,9 @@ class PageGrab {
    *   const data = JSON.parse(resp.responseBody)
    */
   waitForResponse(tabId, match, { timeout = 30000 } = {}) {
+    const cached = findMatchingResponse(this.#responses.get(tabId) ?? [], match)
+    if (cached) return Promise.resolve(cached)
+
     return new Promise((resolve, reject) => {
       const handler = ({ tabId: tid, data }) => {
         if (tid !== tabId || !this.#testMatch(data.url, match)) return
@@ -426,9 +476,16 @@ class PageGrab {
 
   // URL 匹配辅助
   #testMatch(url, match) {
-    if (typeof match === 'function') return match(url)
-    if (match instanceof RegExp)    return match.test(url)
-    if (typeof match === 'string')  return url.includes(match)
-    return false
+    return matchUrl(url, match)
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    PageGrab,
+    findMatchingResponse,
+    matchUrl,
+    meetsMinVersion: PageGrab.meetsMinVersion,
+    parseVersion,
   }
 }

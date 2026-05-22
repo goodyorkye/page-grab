@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8" />
+        <title>PageGrab · 插件采集演示</title>
+        <script src="pagegrab.js"></script>
+        <script src="plugins/jd-product.js"></script>
+        <script src="plugins/jd-rank-list.js"></script>
+        <script src="plugins/taobao-product.js"></script>
+        <style>
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                font-size: 14px;
+                background: #f5f5f5;
+                color: #333;
+                min-height: 100vh;
+            }
+
+            /* ---- Header ---- */
+            header {
+                background: #1a1a2e;
+                color: #fff;
+                padding: 16px 24px;
+                display: flex;
+                align-items: baseline;
+                gap: 12px;
+            }
+            header h1 {
+                font-size: 18px;
+                font-weight: 600;
+            }
+            header span {
+                font-size: 12px;
+                color: #888;
+            }
+
+            /* ---- Main ---- */
+            main {
+                max-width: 860px;
+                margin: 32px auto;
+                padding: 0 16px;
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
+
+            /* ---- Card ---- */
+            .card {
+                background: #fff;
+                border-radius: 8px;
+                border: 1px solid #e0e0e0;
+                overflow: hidden;
+            }
+            .card-head {
+                padding: 12px 16px;
+                background: #fafafa;
+                border-bottom: 1px solid #e0e0e0;
+                font-weight: 600;
+                font-size: 13px;
+                color: #555;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .card-body {
+                padding: 16px;
+            }
+
+            /* ---- Status bar ---- */
+            #status-bar {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 13px;
+            }
+            .dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #ccc;
+                flex-shrink: 0;
+            }
+            .dot.ok {
+                background: #22c55e;
+            }
+            .dot.err {
+                background: #ef4444;
+            }
+
+            /* ---- Input row ---- */
+            .input-row {
+                display: flex;
+                gap: 8px;
+            }
+            .input-row input[type='text'] {
+                flex: 1;
+                padding: 8px 12px;
+                border: 1px solid #d0d0d0;
+                border-radius: 6px;
+                font-size: 13px;
+                font-family: inherit;
+                background: #fafafa;
+                transition: border-color 0.15s;
+                min-width: 0;
+            }
+            .input-row input:focus {
+                outline: none;
+                border-color: #2563eb;
+                background: #fff;
+            }
+
+            button {
+                padding: 8px 16px;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+                font-family: inherit;
+                font-weight: 500;
+                transition: background 0.15s;
+            }
+            .btn-primary {
+                background: #2563eb;
+                color: #fff;
+            }
+            .btn-primary:hover {
+                background: #1d4ed8;
+            }
+            .btn-primary:disabled {
+                background: #93c5fd;
+                cursor: not-allowed;
+            }
+
+            /* ---- Presets ---- */
+            .presets {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-top: 10px;
+            }
+            .preset-btn {
+                padding: 4px 10px;
+                background: #f0f4ff;
+                border: 1px solid #c7d7fc;
+                border-radius: 4px;
+                color: #2563eb;
+                font-size: 12px;
+                cursor: pointer;
+                font-family: inherit;
+                transition: background 0.15s;
+            }
+            .preset-btn:hover {
+                background: #dbeafe;
+            }
+
+            /* ---- Plugin chips ---- */
+            .plugin-list {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .plugin-chip {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 4px 10px;
+                border-radius: 100px;
+                border: 1px solid #d1fae5;
+                background: #ecfdf5;
+                font-size: 12px;
+                color: #065f46;
+            }
+            .plugin-chip .icon {
+                font-size: 10px;
+            }
+
+            /* ---- Result ---- */
+            #result-wrap {
+                display: none;
+            }
+            #result-wrap.visible {
+                display: block;
+            }
+
+            .result-meta {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 10px;
+            }
+            .result-meta .plugin-tag {
+                font-size: 12px;
+                padding: 2px 8px;
+                border-radius: 4px;
+                background: #eff6ff;
+                border: 1px solid #bfdbfe;
+                color: #1d4ed8;
+            }
+            .result-meta .elapsed {
+                font-size: 12px;
+                color: #888;
+            }
+
+            .result-error {
+                padding: 12px 14px;
+                border-radius: 6px;
+                background: #fef2f2;
+                border: 1px solid #fecaca;
+                color: #b91c1c;
+                font-size: 13px;
+                white-space: pre-wrap;
+                word-break: break-all;
+            }
+
+            pre#json-output {
+                background: #1e1e1e;
+                color: #d4d4d4;
+                border-radius: 6px;
+                padding: 16px;
+                font-size: 12px;
+                font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+                overflow: auto;
+                max-height: 560px;
+                line-height: 1.6;
+                white-space: pre;
+            }
+
+            /* JSON syntax highlight */
+            .jk {
+                color: #9cdcfe;
+            } /* key */
+            .js {
+                color: #ce9178;
+            } /* string value */
+            .jn {
+                color: #b5cea8;
+            } /* number */
+            .jb {
+                color: #569cd6;
+            } /* boolean / null */
+
+            /* ---- Spinner ---- */
+            .spinner {
+                display: inline-block;
+                width: 14px;
+                height: 14px;
+                border: 2px solid rgba(255, 255, 255, 0.4);
+                border-top-color: #fff;
+                border-radius: 50%;
+                animation: spin 0.6s linear infinite;
+                vertical-align: middle;
+                margin-right: 4px;
+            }
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+
+            /* ---- Tip ---- */
+            .tip {
+                font-size: 12px;
+                color: #888;
+                line-height: 1.6;
+            }
+            .tip code {
+                background: #f0f0f0;
+                padding: 1px 4px;
+                border-radius: 3px;
+                font-family: monospace;
+                color: #555;
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>PageGrab</h1>
+            <span>插件采集演示</span>
+        </header>
+
+        <main>
+            <!-- 状态 -->
+            <div class="card">
+                <div class="card-head">扩展状态</div>
+                <div class="card-body">
+                    <div id="status-bar">
+                        <div class="dot" id="status-dot"></div>
+                        <span id="status-text">检测中…</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 已注册插件 -->
+            <div class="card">
+                <div class="card-head">已注册插件</div>
+                <div class="card-body">
+                    <div class="plugin-list">
+                        <div class="plugin-chip">
+                            <span class="icon">●</span>
+                            jd-product &nbsp;
+                            <span style="color: #888">item.jd.com</span>
+                        </div>
+                        <div class="plugin-chip">
+                            <span class="icon">●</span>
+                            jd-rank-list &nbsp;
+                            <span style="color: #888">pro.m.jd.com 榜单页</span>
+                        </div>
+                        <div class="plugin-chip">
+                            <span class="icon">●</span>
+                            taobao-product &nbsp;
+                            <span style="color: #888">item.taobao.com</span>
+                        </div>
+                    </div>
+                    <p class="tip" style="margin-top: 10px">
+                        调用
+                        <code>pg.scrape(url)</code>
+                        会自动匹配 URL 并执行对应插件。
+                    </p>
+                </div>
+            </div>
+
+            <!-- 采集 -->
+            <div class="card">
+                <div class="card-head">输入商品 / 榜单 URL</div>
+                <div class="card-body" style="display: flex; flex-direction: column; gap: 12px">
+                    <div class="input-row">
+                        <input
+                            type="text"
+                            id="url-input"
+                            placeholder="https://item.jd.com/xxxxxxxx.html 或 https://pro.m.jd.com/mall/active/.../index.html?rankId=..."
+                            spellcheck="false"
+                        />
+                        <button class="btn-primary" id="scrape-btn" disabled>采集</button>
+                    </div>
+                    <div>
+                        <div class="tip" style="margin-bottom: 6px">快速填入示例 URL：</div>
+                        <div class="presets">
+                            <button class="preset-btn" data-url="https://item.jd.com/100012043978.html">
+                                京东示例
+                            </button>
+                            <button
+                                class="preset-btn"
+                                data-url="https://pro.m.jd.com/mall/active/4JRfHorUDXgL77E9YdNxSCNMKwkJ/index.html?pageNum=1&rankId=3155521&queryType=1&rankType=10"
+                            >
+                                京东榜单示例
+                            </button>
+                            <button class="preset-btn" data-url="https://item.taobao.com/item.htm?id=675215983599">
+                                淘宝示例
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 结果 -->
+            <div class="card" id="result-wrap">
+                <div class="card-head">
+                    <span>采集结果</span>
+                </div>
+                <div class="card-body" style="display: flex; flex-direction: column; gap: 10px">
+                    <div class="result-meta">
+                        <span class="plugin-tag" id="result-plugin"></span>
+                        <span class="elapsed" id="result-elapsed"></span>
+                    </div>
+                    <div id="result-error" class="result-error" style="display: none"></div>
+                    <pre id="json-output" style="display: none"></pre>
+                </div>
+            </div>
+        </main>
+
+        <script>
+            let pg = null;
+
+            // ---- 状态显示 ----
+            function setStatus(state, text) {
+                document.getElementById('status-dot').className =
+                    'dot ' + (state === 'ok' ? 'ok' : state === 'err' ? 'err' : '');
+                document.getElementById('status-text').textContent = text;
+            }
+
+            // ---- JSON 语法高亮 ----
+            function highlight(json) {
+                return json
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(
+                        /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
+                        (match) => {
+                            if (/^"/.test(match)) {
+                                return /:$/.test(match)
+                                    ? `<span class="jk">${match}</span>`
+                                    : `<span class="js">${match}</span>`;
+                            }
+                            if (/true|false|null/.test(match)) return `<span class="jb">${match}</span>`;
+                            return `<span class="jn">${match}</span>`;
+                        }
+                    );
+            }
+
+            // ---- 显示结果 ----
+            function showResult({ pluginName, elapsedMs, data, error }) {
+                const wrap = document.getElementById('result-wrap');
+                wrap.classList.add('visible');
+
+                document.getElementById('result-plugin').textContent = pluginName ? `插件: ${pluginName}` : '';
+                document.getElementById('result-elapsed').textContent =
+                    elapsedMs != null ? `耗时 ${(elapsedMs / 1000).toFixed(1)} s` : '';
+
+                const errEl = document.getElementById('result-error');
+                const jsonEl = document.getElementById('json-output');
+
+                if (error) {
+                    errEl.textContent = error;
+                    errEl.style.display = 'block';
+                    jsonEl.style.display = 'none';
+                } else {
+                    errEl.style.display = 'none';
+                    jsonEl.innerHTML = highlight(JSON.stringify(data, null, 2));
+                    jsonEl.style.display = 'block';
+                }
+            }
+
+            // ---- 采集 ----
+            async function runScrape() {
+                const url = document.getElementById('url-input').value.trim();
+                if (!url || !pg) return;
+
+                const btn = document.getElementById('scrape-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner"></span>采集中…';
+
+                const t0 = Date.now();
+
+                try {
+                    const result = await pg.scrape(url);
+                    console.log(result);
+                    showResult({
+                        pluginName: matchPluginName(url),
+                        elapsedMs: Date.now() - t0,
+                        data: result,
+                    });
+                } catch (e) {
+                    showResult({
+                        pluginName: matchPluginName(url),
+                        elapsedMs: Date.now() - t0,
+                        error: e.message || String(e),
+                    });
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = '采集';
+                }
+            }
+
+            function matchPluginName(url) {
+                if (/item\.jd\.com/.test(url)) return 'jd-product';
+                if (/pro\.m\.jd\.com\/mall\/active\//.test(url)) return 'jd-rank-list';
+                if (/item\.taobao\.com/.test(url)) return 'taobao-product';
+                return '未知插件';
+            }
+
+            // ---- 初始化 ----
+            (async () => {
+                setStatus('', '检测扩展中…');
+
+                pg = await PageGrab.init({
+                    minVersion: '1.0.0',
+                    downloadUrl: '',
+                });
+
+                if (!pg) {
+                    setStatus('err', '扩展未安装或版本过低，请先安装 PageGrab 扩展');
+                    return;
+                }
+
+                pg.use(JDProductPlugin);
+                pg.use(JDRankListPlugin);
+                pg.use(TaobaoProductPlugin);
+
+                setStatus('ok', `扩展已就绪，版本 ${(await PageGrab.detect()).version}`);
+
+                const btn = document.getElementById('scrape-btn');
+                btn.disabled = false;
+
+                btn.addEventListener('click', runScrape);
+
+                document.getElementById('url-input').addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') runScrape();
+                });
+
+                document.querySelectorAll('.preset-btn').forEach((el) => {
+                    el.addEventListener('click', () => {
+                        document.getElementById('url-input').value = el.dataset.url;
+                    });
+                });
+            })();
+        </script>
+    </body>
+</html>

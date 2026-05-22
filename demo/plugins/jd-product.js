@@ -13,7 +13,7 @@
  *   2. 接口返回（价格、SKU、评价数）  - 异步加载，用 waitForResponse 拦截
  *
  * 调试建议：
- *   先在测试页执行控制台打开商品页，观察 Network 面板里的接口 URL，
+ *   先在演示页执行控制台打开商品页，观察 Network 面板里的接口 URL，
  *   然后按实际接口路径调整下方的 waitForResponse 匹配规则。
  */
 

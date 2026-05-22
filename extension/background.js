@@ -10,6 +10,24 @@ const FETCHABLE_MIME = [
   'application/xml',
 ]
 
+function isFetchableMime(mimeType) {
+  return FETCHABLE_MIME.some((mime) => (mimeType || '').includes(mime))
+}
+
+function decodeResponseBody(body, base64Encoded) {
+  if (!base64Encoded) return body
+  const binary = atob(body)
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+  return new TextDecoder('utf-8').decode(bytes)
+}
+
+function buildExecutionExpression(expression) {
+  return `(async function(){
+    try { return await (${expression}) }
+    catch(e) { return { __exec_error: e?.message || String(e) } }
+  })()`
+}
+
 // ---- Port 连接（来自 content script 桥） ----
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -69,14 +87,10 @@ async function handleExecute({ tabId, expression, callId }, port) {
     port.postMessage({ type: 'execute_result', callId, error: `Tab ${tabId} 不在采集会话中` })
     return
   }
-  // 用 JSON.stringify 包裹保证结果可序列化，内部错误也通过返回值传递
-  const wrapped = `(function(){
-    try { return JSON.stringify((${expression})) }
-    catch(e) { return JSON.stringify({ __exec_error: e.message }) }
-  })()`
+  const wrapped = buildExecutionExpression(expression)
 
   const { result, exceptionDetails } = await chrome.debugger.sendCommand(
-    { tabId }, 'Runtime.evaluate', { expression: wrapped, returnByValue: true }
+    { tabId }, 'Runtime.evaluate', { expression: wrapped, returnByValue: true, awaitPromise: true }
   )
 
   if (exceptionDetails) {
@@ -85,8 +99,7 @@ async function handleExecute({ tabId, expression, callId }, port) {
     return
   }
 
-  let value
-  try { value = JSON.parse(result.value) } catch (_) { value = result.value }
+  const value = result?.value
 
   if (value && typeof value === 'object' && value.__exec_error) {
     port.postMessage({ type: 'execute_result', callId, error: value.__exec_error })
@@ -138,12 +151,12 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
     const entry = pending.get(params.requestId)
     if (!entry) return
 
-    if (FETCHABLE_MIME.some(m => (entry.mimeType || '').includes(m))) {
+    if (isFetchableMime(entry.mimeType)) {
       try {
         const { body, base64Encoded } = await chrome.debugger.sendCommand(
           source, 'Network.getResponseBody', { requestId: params.requestId }
         )
-        entry.responseBody = base64Encoded ? atob(body) : body
+        entry.responseBody = decodeResponseBody(body, base64Encoded)
       } catch (_) {
         // 获取失败时 responseBody 保持 null，基本信息仍会回调
       }
@@ -170,3 +183,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   session.port.postMessage({ type: 'tab_closed', tabId })
   sessions.delete(tabId)
 })
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    buildExecutionExpression,
+    decodeResponseBody,
+    isFetchableMime,
+  }
+}

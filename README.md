@@ -35,24 +35,48 @@ Background Service Worker
 
 > 注意：`extension/` 目录不能删除或移动，Chrome 会持续从该路径加载扩展。
 
-## 快速开始
+## 打包插件
 
-### 方式一：直接使用测试页
-
-测试页需要通过 HTTP 服务访问（不支持 `file://` 直接打开）：
+仓库内置了一个打包脚本，可将 `extension/` 目录直接打成可分发的 zip：
 
 ```bash
-cd test
+./scripts/package-extension.sh
+```
+
+默认输出路径为：
+
+```bash
+dist/pagegrab-extension-v1.0.0.zip
+```
+
+其中版本号会自动读取 `extension/manifest.json` 中的 `version` 字段。
+
+如果你想自定义输出文件名，也可以传一个路径参数：
+
+```bash
+./scripts/package-extension.sh dist/my-extension.zip
+```
+
+生成出来的 zip 包根目录就是扩展文件本身，可直接发给别人下载、解压并通过 Chrome 的「加载已解压的扩展程序」安装。
+
+## 快速开始
+
+### 方式一：直接使用演示页
+
+演示页需要通过 HTTP 服务访问（不支持 `file://` 直接打开）：
+
+```bash
+cd demo
 npx serve .
 # 或
 python3 -m http.server 8080
 ```
 
-浏览器访问 `http://localhost:3000`，在输入框填入目标 URL，点击「打开采集」即可。
+如果使用 `npx serve .`，通常访问 `http://localhost:3000`；如果使用 `python3 -m http.server 8080`，则访问 `http://localhost:8080`。在输入框填入目标 URL，点击「打开采集」即可。
 
 ### 方式二：在自己的页面中集成
 
-将 `test/pagegrab.js` 复制到你的项目，然后：
+将 `demo/pagegrab.js` 复制到你的项目，然后：
 
 ```html
 <script src="pagegrab.js"></script>
@@ -202,9 +226,11 @@ await pg.execute(tabId, '[...document.querySelectorAll("h2")].map(el => el.textC
 ```js
 // 引入插件文件（需在 pagegrab.js 之后加载）
 // <script src="plugins/jd-product.js"></script>
+// <script src="plugins/jd-rank-list.js"></script>
 
 const pg = await PageGrab.init({ minVersion: '1.0.0' })
 pg.use(JDProductPlugin)
+pg.use(JDRankListPlugin)
 pg.use(TaobaoProductPlugin)
 
 // 自动匹配插件采集
@@ -243,7 +269,7 @@ const MyPlugin = {
 }
 ```
 
-详细说明见 [`test/plugins/plugin.template.js`](test/plugins/plugin.template.js)。
+详细说明见 [`demo/plugins/plugin.template.js`](demo/plugins/plugin.template.js)。
 
 ### 新增 API
 
@@ -258,11 +284,12 @@ const MyPlugin = {
 
 | 文件 | 采集目标 | 说明 |
 |------|---------|------|
-| [`test/plugins/jd-product.js`](test/plugins/jd-product.js) | 京东商品详情 | DOM + 价格/评价接口拦截 |
-| [`test/plugins/taobao-product.js`](test/plugins/taobao-product.js) | 淘宝商品详情 | mtop 网关接口拦截 |
-| [`test/plugins/plugin.template.js`](test/plugins/plugin.template.js) | — | 插件开发模板 |
+| [`demo/plugins/jd-product.js`](demo/plugins/jd-product.js) | 京东商品详情 | DOM + 价格/评价接口拦截 |
+| [`demo/plugins/jd-rank-list.js`](demo/plugins/jd-rank-list.js) | 京东榜单页 | 从原始 HTML 的 `window.__react_data__` 提取榜单商品列表 |
+| [`demo/plugins/taobao-product.js`](demo/plugins/taobao-product.js) | 淘宝商品详情 | mtop 网关接口拦截 |
+| [`demo/plugins/plugin.template.js`](demo/plugins/plugin.template.js) | — | 插件开发模板 |
 
-> 电商平台页面结构和接口路径随版本迭代会变化，内置插件提供的是实现思路和常见字段路径，建议通过测试页的 Network 面板确认实际接口路径后调整。
+> 电商平台页面结构和接口路径随版本迭代会变化，内置插件提供的是实现思路和常见字段路径，建议通过演示页的 Network 面板确认实际接口路径后调整。
 
 ## 目录结构
 
@@ -272,12 +299,13 @@ page-grab/
 │   ├── manifest.json
 │   ├── background.js   Service Worker，处理 tab 控制和 CDP 拦截
 │   └── content.js      注入到每个 tab，桥接 postMessage 与 Port
-└── test/               测试工具 & 客户端 SDK
+└── demo/               演示工具 & 客户端 SDK
     ├── pagegrab.js     控制页面 SDK（含插件系统）
     ├── index.html      可视化测试页面
     └── plugins/        采集插件（与 pagegrab.js 同级）
         ├── plugin.template.js  插件开发模板
         ├── jd-product.js       京东商品
+        ├── jd-rank-list.js     京东榜单
         └── taobao-product.js   淘宝商品
 ```
 
