@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>PageGrab</title>
+  <script src="demo-config.js"></script>
   <script src="pagegrab.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -368,7 +369,7 @@
 
   PageGrab.init({
     minVersion: '1.0.1',
-    downloadUrl: '',
+    downloadUrl: PageGrabDemoConfig.getDefaultExtensionDownloadUrl(),
   }).then((instance) => {
     if (!instance) return
     pg = instance

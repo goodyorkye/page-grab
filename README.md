@@ -113,6 +113,10 @@ pm2 start ecosystem.config.cjs
 - `http://127.0.0.1:20621/demo/demo-plugin.html`：插件采集演示
 - `http://127.0.0.1:20621/demo/youtube-cookies.html`：YouTube Cookie 导出页
 
+这些 demo 页面在检测到扩展未安装或版本过低时，默认会给出本地下载地址：
+
+- `http://127.0.0.1:20621/dist/pagegrab-extension-v1.0.1.zip`
+
 ### 方式二：在自己的页面中集成
 
 将 `demo/pagegrab.js` 复制到你的项目，然后：

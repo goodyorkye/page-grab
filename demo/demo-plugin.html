@@ -3,6 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <title>PageGrab · 插件采集演示</title>
+        <script src="demo-config.js"></script>
         <script src="pagegrab.js"></script>
         <script src="youtube-cookie-utils.js"></script>
         <script src="plugins/jd-product.js"></script>
@@ -640,8 +641,7 @@
 
                 pg = await PageGrab.init({
                     minVersion: '1.0.1',
-                    downloadUrl:
-                        'https://github.com/goodyorkye/page-grab/raw/refs/heads/main/dist/pagegrab-extension-v1.0.1.zip',
+                    downloadUrl: PageGrabDemoConfig.getDefaultExtensionDownloadUrl(),
                 });
 
                 if (!pg) {
