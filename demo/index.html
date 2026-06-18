@@ -334,8 +334,11 @@
           <option value="images">获取所有图片 src</option>
           <option value="qs">querySelector</option>
           <option value="qsa">querySelectorAll</option>
+          <option value="pageCookies">获取当前页面 Cookies</option>
+          <option value="domainCookies">获取当前域名 Cookies</option>
         </select>
         <input type="text" id="selector-input" placeholder="CSS 选择器" style="display:none;width:180px" />
+        <input type="text" id="cookie-domain-input" placeholder="域名或 URL" style="display:none;width:220px" />
         <select id="prop-select" style="display:none">
           <option value="outerHTML">outerHTML</option>
           <option value="textContent">textContent</option>
@@ -364,7 +367,7 @@
   // ---- 初始化 ----
 
   PageGrab.init({
-    minVersion: '1.0.0',
+    minVersion: '1.0.1',
     downloadUrl: '',
   }).then((instance) => {
     if (!instance) return
@@ -541,15 +544,29 @@
   function onPresetChange(val) {
     const exprInput    = document.getElementById('expr-input')
     const selectorInput = document.getElementById('selector-input')
+    const cookieDomainInput = document.getElementById('cookie-domain-input')
     const propSelect   = document.getElementById('prop-select')
     const needsSelector = val === 'qs' || val === 'qsa'
+    const needsCookieDomain = val === 'domainCookies'
+    const usesCookieApi = val === 'pageCookies' || val === 'domainCookies'
 
     selectorInput.style.display = needsSelector ? '' : 'none'
+    cookieDomainInput.style.display = needsCookieDomain ? '' : 'none'
     propSelect.style.display    = needsSelector ? '' : 'none'
+    exprInput.disabled = usesCookieApi
+    exprInput.placeholder = usesCookieApi
+      ? '当前预设会直接调用 Cookie API，无需输入 JS 表达式'
+      : `输入 JS 表达式，结果需可 JSON 序列化\n示例：document.title\n示例：[...document.querySelectorAll('h1')].map(el => el.textContent)`
 
     if (EXPR_PRESETS[val])  exprInput.value = EXPR_PRESETS[val]
     else if (needsSelector) syncSelectorExpr(val)
-    else                    exprInput.value = ''
+    else if (val === 'pageCookies') exprInput.value = '// 将调用 pg.getCookies(tabId)'
+    else if (val === 'domainCookies') {
+      exprInput.value = '// 将调用 pg.getCookiesByDomain(domain)'
+      cookieDomainInput.value = guessCookieDomain()
+    } else {
+      exprInput.value = ''
+    }
   }
 
   function syncSelectorExpr(preset) {
@@ -571,20 +588,46 @@
     const preset = document.getElementById('preset-select').value
     if (preset === 'qs' || preset === 'qsa') syncSelectorExpr(preset)
   })
+  document.getElementById('tab-select').addEventListener('change', () => {
+    if (document.getElementById('preset-select').value === 'domainCookies') {
+      document.getElementById('cookie-domain-input').value = guessCookieDomain()
+    }
+  })
 
   async function runExpr() {
     if (!pg) return setOutput('插件未就绪', 'error')
     const tabId = parseInt(document.getElementById('tab-select').value)
+    const preset = document.getElementById('preset-select').value
     const expr  = document.getElementById('expr-input').value.trim()
     if (!tabId) return setOutput('请先选择一个 Tab', 'error')
-    if (!expr)  return setOutput('请输入 JS 表达式', 'error')
 
     setOutput('执行中...', 'empty')
     try {
-      const result = await pg.execute(tabId, expr)
+      let result
+      if (preset === 'pageCookies') {
+        result = await pg.getCookies(tabId)
+      } else if (preset === 'domainCookies') {
+        const domain = document.getElementById('cookie-domain-input').value.trim() || guessCookieDomain()
+        if (!domain) return setOutput('请输入域名或先打开一个带域名的页面', 'error')
+        result = await pg.getCookiesByDomain(domain)
+      } else {
+        if (!expr) return setOutput('请输入 JS 表达式', 'error')
+        result = await pg.execute(tabId, expr)
+      }
       setOutput(typeof result === 'string' ? result : JSON.stringify(result, null, 2))
     } catch (err) {
       setOutput(err.message, 'error')
+    }
+  }
+
+  function guessCookieDomain() {
+    const tabId = document.getElementById('tab-select').value
+    const url = sessions[tabId]
+    if (!url) return ''
+    try {
+      return new URL(url).hostname
+    } catch (_) {
+      return ''
     }
   }
 

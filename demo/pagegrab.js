@@ -1,5 +1,5 @@
 /**
- * PageGrab v1.0.0
+ * PageGrab v1.0.1
  *
  * 通过 Chrome Extension 拦截目标页面网络请求、执行脚本、获取 DOM。
  * 包含插件安装检测与版本校验，可直接在任意控制页面引入使用。
@@ -8,7 +8,7 @@
  *
  *   // 检测插件并获取实例（推荐）
  *   const pi = await PageGrab.init({
- *     minVersion: '1.0.0',
+ *     minVersion: '1.0.1',
  *     downloadUrl: 'https://your-domain.com/page-grab.zip',
  *   })
  *   if (!pi) return  // 未安装或版本过低，已自动弹出提示
@@ -21,6 +21,8 @@
  *   const html  = await pi.getHtml(tabId)
  *   const price = await pi.querySelector(tabId, '.price', 'textContent')
  *   const links = await pi.querySelectorAll(tabId, 'a', 'href')
+ *   const pageCookies = await pi.getCookies(tabId)
+ *   const domainCookies = await pi.getCookiesByDomain('example.com')
  *   pi.closeTab(tabId)
  *
  * ── 仅检测，不弹提示 ──────────────────────────────────────────
@@ -395,6 +397,28 @@ class PageGrab {
       tabId,
       `[...document.querySelectorAll(${JSON.stringify(selector)})].map(el => el.${prop})`
     )
+  }
+
+  /**
+   * 获取当前采集页面可见的全部 cookie。
+   * 底层使用目标 tab 的当前 URL 查询，因此会自动带上该页面所在 cookie store 的上下文。
+   *
+   * @param {number} tabId
+   * @returns {Promise<object[]>}
+   */
+  getCookies(tabId) {
+    return this.#call({ action: 'get_cookies', tabId })
+  }
+
+  /**
+   * 按域名获取浏览器中匹配该域的全部 cookie。
+   * 传入 bare domain（example.com）或完整 URL（https://example.com/path）都可以。
+   *
+   * @param {string} domain
+   * @returns {Promise<object[]>}
+   */
+  getCookiesByDomain(domain) {
+    return this.#call({ action: 'get_cookies', domain })
   }
 
   // =========================================================

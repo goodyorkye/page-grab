@@ -28,6 +28,38 @@ function buildExecutionExpression(expression) {
   })()`
 }
 
+function isSupportedCookieUrl(url) {
+  return /^https?:\/\//.test(url || '')
+}
+
+function normalizeCookieDomain(domainOrUrl) {
+  const raw = String(domainOrUrl || '').trim()
+  if (!raw) throw new Error('domain 不能为空')
+
+  try {
+    return new URL(raw).hostname
+  } catch (_) {
+    return raw
+      .replace(/^[./]+/, '')
+      .split('/')[0]
+      .split('?')[0]
+      .split('#')[0]
+  }
+}
+
+async function getCookiesForTab(tabId) {
+  const tab = await chrome.tabs.get(tabId)
+  if (!tab?.url || !isSupportedCookieUrl(tab.url)) {
+    throw new Error(`Tab ${tabId} 当前 URL 不支持读取 cookie`)
+  }
+  return chrome.cookies.getAll({ url: tab.url })
+}
+
+async function getCookiesForDomain(domainOrUrl) {
+  const domain = normalizeCookieDomain(domainOrUrl)
+  return chrome.cookies.getAll({ domain })
+}
+
 // ---- Port 连接（来自 content script 桥） ----
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -38,6 +70,7 @@ chrome.runtime.onConnect.addListener((port) => {
       if (msg.action === 'open')    await handleOpen(msg, port)
       if (msg.action === 'close')   await handleClose(msg, port)
       if (msg.action === 'execute') await handleExecute(msg, port)
+      if (msg.action === 'get_cookies') await handleGetCookies(msg, port)
     } catch (err) {
       port.postMessage({ type: 'error', callId: msg.callId, error: err.message })
     }
@@ -106,6 +139,25 @@ async function handleExecute({ tabId, expression, callId }, port) {
   } else {
     port.postMessage({ type: 'execute_result', callId, result: value })
   }
+}
+
+async function handleGetCookies({ tabId, domain, callId }, port) {
+  let cookies
+
+  if (tabId != null) {
+    if (!sessions.has(tabId)) {
+      port.postMessage({ type: 'cookies_result', callId, error: `Tab ${tabId} 不在采集会话中` })
+      return
+    }
+    cookies = await getCookiesForTab(tabId)
+  } else if (domain) {
+    cookies = await getCookiesForDomain(domain)
+  } else {
+    port.postMessage({ type: 'cookies_result', callId, error: '必须提供 tabId 或 domain' })
+    return
+  }
+
+  port.postMessage({ type: 'cookies_result', callId, result: cookies })
 }
 
 async function detachDebugger(tabId) {
@@ -189,5 +241,8 @@ if (typeof module !== 'undefined' && module.exports) {
     buildExecutionExpression,
     decodeResponseBody,
     isFetchableMime,
+    isSupportedCookieUrl,
+    normalizeCookieDomain,
+    getCookiesForDomain,
   }
 }

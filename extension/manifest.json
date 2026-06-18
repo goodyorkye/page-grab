@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "PageGrab",
-  "version": "1.0.0",
-  "permissions": ["tabs", "debugger"],
+  "version": "1.0.1",
+  "permissions": ["tabs", "debugger", "cookies"],
   "host_permissions": ["<all_urls>"],
   "content_scripts": [{
     "matches": ["<all_urls>"],

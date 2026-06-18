@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8" />
+        <title>PageGrab · YouTube Cookies 导出</title>
+        <script src="pagegrab.js"></script>
+        <script src="youtube-cookie-utils.js"></script>
+        <script src="plugins/youtube-cookies.js"></script>
+        <style>
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                background: linear-gradient(180deg, #0f172a 0%, #111827 100%);
+                color: #e5e7eb;
+                min-height: 100vh;
+            }
+
+            main {
+                max-width: 980px;
+                margin: 0 auto;
+                padding: 40px 20px 56px;
+                display: flex;
+                flex-direction: column;
+                gap: 18px;
+            }
+
+            .hero {
+                padding: 24px 26px;
+                border-radius: 18px;
+                background: linear-gradient(135deg, rgba(220, 38, 38, 0.2), rgba(30, 41, 59, 0.96));
+                border: 1px solid rgba(248, 113, 113, 0.28);
+                box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+            }
+
+            .hero h1 {
+                font-size: 28px;
+                font-weight: 700;
+                margin-bottom: 10px;
+                letter-spacing: -0.02em;
+            }
+
+            .hero p {
+                color: #cbd5e1;
+                line-height: 1.7;
+                max-width: 760px;
+                font-size: 14px;
+            }
+
+            .card {
+                background: rgba(15, 23, 42, 0.88);
+                border: 1px solid rgba(148, 163, 184, 0.2);
+                border-radius: 18px;
+                overflow: hidden;
+                box-shadow: 0 20px 44px rgba(0, 0, 0, 0.2);
+            }
+
+            .card-head {
+                padding: 14px 18px;
+                border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+                font-size: 13px;
+                font-weight: 600;
+                color: #f8fafc;
+                background: rgba(15, 23, 42, 0.95);
+            }
+
+            .card-body {
+                padding: 18px;
+                display: flex;
+                flex-direction: column;
+                gap: 14px;
+            }
+
+            .status {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-size: 13px;
+                color: #cbd5e1;
+            }
+
+            .status-dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background: #64748b;
+                flex-shrink: 0;
+            }
+
+            .status-dot.ok {
+                background: #22c55e;
+            }
+
+            .status-dot.err {
+                background: #ef4444;
+            }
+
+            .status-dot.warn {
+                background: #f59e0b;
+            }
+
+            .input-row,
+            .action-row {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+
+            input[type='text'] {
+                flex: 1;
+                min-width: 280px;
+                border-radius: 12px;
+                border: 1px solid rgba(148, 163, 184, 0.28);
+                background: rgba(15, 23, 42, 0.92);
+                color: #f8fafc;
+                font-size: 14px;
+                padding: 12px 14px;
+            }
+
+            input[type='text']:focus,
+            textarea:focus {
+                outline: none;
+                border-color: rgba(96, 165, 250, 0.9);
+                box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+            }
+
+            button {
+                border: none;
+                border-radius: 12px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 600;
+                padding: 12px 18px;
+                transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+            }
+
+            button:hover:not(:disabled) {
+                transform: translateY(-1px);
+            }
+
+            button:disabled {
+                opacity: 0.55;
+                cursor: not-allowed;
+            }
+
+            .btn-primary {
+                background: linear-gradient(135deg, #ef4444, #dc2626);
+                color: #fff;
+            }
+
+            .btn-secondary {
+                background: rgba(30, 41, 59, 1);
+                color: #e2e8f0;
+                border: 1px solid rgba(148, 163, 184, 0.2);
+            }
+
+            textarea {
+                width: 100%;
+                min-height: 380px;
+                resize: vertical;
+                border-radius: 14px;
+                border: 1px solid rgba(148, 163, 184, 0.28);
+                background: #020617;
+                color: #e2e8f0;
+                padding: 16px 18px;
+                font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+                font-size: 12px;
+                line-height: 1.7;
+                white-space: pre;
+            }
+
+            .tip,
+            .step-log {
+                color: #94a3b8;
+                font-size: 12px;
+                line-height: 1.7;
+            }
+
+            .step-log {
+                padding: 12px 14px;
+                border-radius: 12px;
+                background: rgba(2, 6, 23, 0.68);
+                border: 1px solid rgba(148, 163, 184, 0.14);
+                min-height: 110px;
+                white-space: pre-wrap;
+            }
+
+            .spinner {
+                display: inline-block;
+                width: 14px;
+                height: 14px;
+                border: 2px solid rgba(255, 255, 255, 0.35);
+                border-top-color: #fff;
+                border-radius: 50%;
+                animation: spin 0.65s linear infinite;
+                vertical-align: -2px;
+                margin-right: 6px;
+            }
+
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+
+            @media (max-width: 720px) {
+                .hero h1 {
+                    font-size: 24px;
+                }
+
+                main {
+                    padding: 24px 14px 40px;
+                }
+
+                textarea {
+                    min-height: 320px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <section class="hero">
+                <h1>YouTube Cookies 导出</h1>
+                <p>
+                    这个独立 demo 会严格按顺序执行：先打开一个 YouTube 视频页，等待页面完成加载；再打开
+                    <code>https://www.youtube.com/robots.txt</code>；最后读取域名为 <code>.youtube.com</code>
+                    的 Cookie，并导出成 Netscape HTTP Cookie File 文本格式。
+                </p>
+            </section>
+
+            <section class="card">
+                <div class="card-head">扩展状态</div>
+                <div class="card-body">
+                    <div class="status">
+                        <div class="status-dot" id="status-dot"></div>
+                        <span id="status-text">检测扩展中…</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-head">目标视频</div>
+                <div class="card-body">
+                    <div class="input-row">
+                        <input
+                            type="text"
+                            id="video-url-input"
+                            value="https://www.youtube.com/watch?v=3DlXq9nsQOE"
+                            spellcheck="false"
+                        />
+                        <button class="btn-primary" id="run-btn" disabled>开始获取 Cookies</button>
+                    </div>
+                    <div class="tip">
+                        流程会临时打开两个后台 Tab：视频页和 <code>robots.txt</code>，读取完成后自动关闭。
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-head">执行过程</div>
+                <div class="card-body">
+                    <div class="step-log" id="step-log">等待执行…</div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-head">Cookie 文件内容</div>
+                <div class="card-body">
+                    <textarea id="cookie-output" placeholder="导出的 Cookie 文件内容会显示在这里"></textarea>
+                    <div class="action-row">
+                        <button class="btn-secondary" id="copy-btn" disabled>复制内容</button>
+                        <button class="btn-secondary" id="export-btn" disabled>导出文件</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <script>
+            let pg = null
+            let latestCookieText = ''
+            let latestFileName = 'www.youtube.com_cookies.txt'
+
+            function setStatus(level, text) {
+                const dot = document.getElementById('status-dot')
+                const label = document.getElementById('status-text')
+                dot.className = `status-dot${level ? ` ${level}` : ''}`
+                label.textContent = text
+            }
+
+            function appendStep(text) {
+                const box = document.getElementById('step-log')
+                const now = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+                const prefix = box.textContent === '等待执行…' ? '' : '\n'
+                box.textContent += `${prefix}[${now}] ${text}`
+                box.scrollTop = box.scrollHeight
+            }
+
+            function resetStepLog() {
+                document.getElementById('step-log').textContent = '等待执行…'
+            }
+
+            function setStepLog(lines) {
+                document.getElementById('step-log').textContent = (lines && lines.length) ? lines.join('\n') : '等待执行…'
+            }
+
+            function setCookieOutput(text) {
+                latestCookieText = text
+                const textarea = document.getElementById('cookie-output')
+                textarea.value = text
+                const enabled = !!text
+                document.getElementById('copy-btn').disabled = !enabled
+                document.getElementById('export-btn').disabled = !enabled
+            }
+
+            function setRunning(isRunning) {
+                const btn = document.getElementById('run-btn')
+                btn.disabled = isRunning || !pg
+                btn.innerHTML = isRunning ? '<span class="spinner"></span>执行中…' : '开始获取 Cookies'
+            }
+
+            async function runFlow() {
+                if (!pg) return
+
+                const videoUrl = document.getElementById('video-url-input').value.trim()
+
+                resetStepLog()
+                setCookieOutput('')
+                setStatus('ok', '开始执行 YouTube Cookie 导出流程…')
+                setRunning(true)
+
+                try {
+                    const result = await pg.scrape(videoUrl, { plugin: 'youtube-cookies' })
+                    latestFileName = result.fileName
+                    setCookieOutput(result.text)
+                    setStepLog(result.steps)
+                    setStatus('ok', `Cookie 获取完成，共 ${result.cookieCount} 条`)
+                } catch (error) {
+                    appendStep(`失败：${error.message || String(error)}`)
+                    throw error
+                } finally {
+                    setRunning(false)
+                }
+            }
+
+            async function onRunClick() {
+                try {
+                    await runFlow()
+                } catch (error) {
+                    setStatus('err', error.message || String(error))
+                }
+            }
+
+            async function copyContent() {
+                if (!latestCookieText) return
+                await navigator.clipboard.writeText(latestCookieText)
+                appendStep('已复制 Cookie 内容到剪贴板')
+            }
+
+            function exportFile() {
+                if (!latestCookieText) return
+                const blob = new Blob([latestCookieText], { type: 'text/plain;charset=utf-8' })
+                const url = URL.createObjectURL(blob)
+                const a = Object.assign(document.createElement('a'), {
+                    href: url,
+                    download: latestFileName,
+                })
+                a.click()
+                URL.revokeObjectURL(url)
+                appendStep(`已导出 ${latestFileName}`)
+            }
+
+            ;(async () => {
+                setStatus('', '检测扩展中…')
+
+                pg = await PageGrab.init({
+                    minVersion: '1.0.1',
+                    downloadUrl:
+                        'https://github.com/goodyorkye/page-grab/raw/refs/heads/main/dist/pagegrab-extension-v1.0.1.zip',
+                })
+
+                if (!pg) {
+                    setStatus('warn', '扩展未安装或版本过低，请先安装 / 重载扩展后刷新本页')
+                    return
+                }
+
+                pg.use(YouTubeCookiesPlugin)
+
+                const detect = await PageGrab.detect()
+                setStatus('ok', `扩展已就绪，版本 ${detect.version}`)
+
+                document.getElementById('run-btn').disabled = false
+                document.getElementById('run-btn').addEventListener('click', onRunClick)
+                document.getElementById('copy-btn').addEventListener('click', copyContent)
+                document.getElementById('export-btn').addEventListener('click', exportFile)
+                document.getElementById('video-url-input').addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter' && !document.getElementById('run-btn').disabled) {
+                        onRunClick()
+                    }
+                })
+            })()
+        </script>
+    </body>
+</html>

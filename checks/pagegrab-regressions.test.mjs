@@ -4,11 +4,11 @@ import path from 'node:path'
 import vm from 'node:vm'
 
 const repoRoot = '/Users/york/data/workspace/chrome/n1/page-grab'
+const noop = () => {}
 
 function loadPageGrabExports(overrides = {}) {
   const source = fs.readFileSync(path.join(repoRoot, 'demo/pagegrab.js'), 'utf8')
   const module = { exports: {} }
-  const noop = () => {}
   const element = () => ({
     style: {},
     innerHTML: '',
@@ -42,10 +42,9 @@ function loadPageGrabExports(overrides = {}) {
   return module.exports
 }
 
-function loadBackgroundExports() {
+function loadBackgroundExports(overrides = {}) {
   const source = fs.readFileSync(path.join(repoRoot, 'extension/background.js'), 'utf8')
   const module = { exports: {} }
-  const noop = () => {}
   const context = {
     module,
     exports: module.exports,
@@ -53,10 +52,12 @@ function loadBackgroundExports() {
     atob: (value) => Buffer.from(value, 'base64').toString('binary'),
     Uint8Array,
     TextDecoder,
-    chrome: {
+    URL,
+    chrome: overrides.chrome ?? {
+      cookies: { getAll: noop },
       runtime: { onConnect: { addListener: noop } },
       debugger: { onEvent: { addListener: noop } },
-      tabs: { onRemoved: { addListener: noop } },
+      tabs: { get: noop, onRemoved: { addListener: noop } },
     },
   }
 
@@ -127,6 +128,109 @@ async function main() {
     background.decodeResponseBody(encoded, true),
     rawText,
     'base64 response bodies should decode as UTF-8 text'
+  )
+
+  assert.equal(
+    background.isSupportedCookieUrl('https://example.com/path?a=1'),
+    true,
+    'http/https page URLs should support cookie reads'
+  )
+  assert.equal(
+    background.isSupportedCookieUrl('chrome://extensions'),
+    false,
+    'non-http urls should be rejected for cookie reads'
+  )
+  assert.equal(
+    background.normalizeCookieDomain('https://sub.example.com/path?q=1'),
+    'sub.example.com',
+    'full URLs should normalize to hostname for domain cookie lookups'
+  )
+  assert.equal(
+    background.normalizeCookieDomain('.example.com'),
+    'example.com',
+    'leading dots should be stripped from domain lookups'
+  )
+
+  const cookieCalls = []
+  const backgroundWithCookies = loadBackgroundExports({
+    chrome: {
+      cookies: {
+        getAll(details) {
+          cookieCalls.push(details)
+          return Promise.resolve([{ name: 'sid', value: 'abc' }])
+        },
+      },
+      runtime: { onConnect: { addListener: noop } },
+      debugger: { onEvent: { addListener: noop } },
+      tabs: { get: noop, onRemoved: { addListener: noop } },
+    },
+  })
+  const cookies = await backgroundWithCookies.getCookiesForDomain('https://shop.example.com/item/1')
+  assert.deepEqual(
+    cookies,
+    [{ name: 'sid', value: 'abc' }],
+    'domain cookie lookups should resolve cookie API results'
+  )
+  assert.equal(
+    JSON.stringify(cookieCalls),
+    JSON.stringify([{ domain: 'shop.example.com' }]),
+    'domain cookie lookups should query the normalized hostname'
+  )
+
+  let pageGrabMessageHandler = null
+  const cookieWindow = {
+    addEventListener(type, handler) {
+      if (type === 'message') pageGrabMessageHandler = handler
+    },
+    removeEventListener(type, handler) {
+      if (type === 'message' && pageGrabMessageHandler === handler) pageGrabMessageHandler = null
+    },
+    postMessage(message) {
+      if (message?.to !== 'extension') return
+      const payload = message.payload ?? {}
+      if (payload.action === 'get_cookies' && payload.tabId === 7) {
+        setTimeout(() => {
+          pageGrabMessageHandler?.({
+            source: cookieWindow,
+            data: {
+              from: 'extension',
+              payload: {
+                type: 'cookies_result',
+                callId: payload.callId,
+                result: [{ name: 'session', value: 'tab-cookie' }],
+              },
+            },
+          })
+        }, 0)
+      }
+      if (payload.action === 'get_cookies' && payload.domain === 'example.com') {
+        setTimeout(() => {
+          pageGrabMessageHandler?.({
+            source: cookieWindow,
+            data: {
+              from: 'extension',
+              payload: {
+                type: 'cookies_result',
+                callId: payload.callId,
+                result: [{ name: 'session', value: 'domain-cookie' }],
+              },
+            },
+          })
+        }, 0)
+      }
+    },
+  }
+  const { PageGrab } = loadPageGrabExports({ window: cookieWindow })
+  const pg = new PageGrab()
+  assert.deepEqual(
+    await pg.getCookies(7),
+    [{ name: 'session', value: 'tab-cookie' }],
+    'PageGrab#getCookies should resolve tab-scoped cookie responses'
+  )
+  assert.deepEqual(
+    await pg.getCookiesByDomain('example.com'),
+    [{ name: 'session', value: 'domain-cookie' }],
+    'PageGrab#getCookiesByDomain should resolve domain-scoped cookie responses'
   )
 
   console.log('ok')

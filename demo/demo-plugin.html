@@ -4,9 +4,11 @@
         <meta charset="UTF-8" />
         <title>PageGrab · 插件采集演示</title>
         <script src="pagegrab.js"></script>
+        <script src="youtube-cookie-utils.js"></script>
         <script src="plugins/jd-product.js"></script>
         <script src="plugins/jd-rank-list.js"></script>
         <script src="plugins/taobao-product.js"></script>
+        <script src="plugins/youtube-cookies.js"></script>
         <style>
             * {
                 box-sizing: border-box;
@@ -134,6 +136,20 @@
             }
             .btn-primary:disabled {
                 background: #93c5fd;
+                cursor: not-allowed;
+            }
+            .btn-secondary {
+                background: #eef2ff;
+                color: #1d4ed8;
+                border: 1px solid #c7d2fe;
+            }
+            .btn-secondary:hover {
+                background: #e0e7ff;
+            }
+            .btn-secondary:disabled {
+                background: #eef2ff;
+                color: #94a3b8;
+                border-color: #e2e8f0;
                 cursor: not-allowed;
             }
 
@@ -276,6 +292,40 @@
                 font-family: monospace;
                 color: #555;
             }
+
+            .inline-input {
+                width: 100%;
+                padding: 8px 12px;
+                border: 1px solid #d0d0d0;
+                border-radius: 6px;
+                font-size: 13px;
+                font-family: inherit;
+                background: #fafafa;
+            }
+            .inline-input:focus {
+                outline: none;
+                border-color: #2563eb;
+                background: #fff;
+            }
+
+            .cookie-actions {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+
+            pre#cookie-output {
+                background: #111827;
+                color: #d4d4d4;
+                border-radius: 6px;
+                padding: 14px 16px;
+                font-size: 12px;
+                font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+                overflow: auto;
+                max-height: 360px;
+                line-height: 1.6;
+                white-space: pre;
+            }
         </style>
     </head>
     <body>
@@ -316,6 +366,11 @@
                             taobao-product &nbsp;
                             <span style="color: #888">item.taobao.com</span>
                         </div>
+                        <div class="plugin-chip">
+                            <span class="icon">●</span>
+                            youtube-cookies &nbsp;
+                            <span style="color: #888">www.youtube.com/watch?v=...</span>
+                        </div>
                     </div>
                     <p class="tip" style="margin-top: 10px">
                         调用
@@ -353,8 +408,34 @@
                             <button class="preset-btn" data-url="https://item.taobao.com/item.htm?id=675215983599">
                                 淘宝示例
                             </button>
+                            <button class="preset-btn" data-url="https://www.youtube.com/watch?v=3DlXq9nsQOE">
+                                YouTube Cookies 示例
+                            </button>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Cookie 调试 -->
+            <div class="card">
+                <div class="card-head">Cookie 调试</div>
+                <div class="card-body" style="display: flex; flex-direction: column; gap: 12px">
+                    <div class="tip">
+                        “当前页面 Cookies” 会临时打开目标 URL、读取该页面可见 Cookie 后自动关闭；
+                        “按域名读取” 直接调用 <code>pg.getCookiesByDomain()</code>。
+                    </div>
+                    <input
+                        type="text"
+                        id="cookie-domain-input"
+                        class="inline-input"
+                        placeholder="域名或 URL，例如 example.com 或 https://example.com/path"
+                        spellcheck="false"
+                    />
+                    <div class="cookie-actions">
+                        <button class="btn-secondary" id="page-cookie-btn" disabled>读取当前页面 Cookies</button>
+                        <button class="btn-secondary" id="domain-cookie-btn" disabled>按域名读取</button>
+                    </div>
+                    <pre id="cookie-output">Cookie 结果会显示在这里</pre>
                 </div>
             </div>
 
@@ -427,6 +508,34 @@
                 }
             }
 
+            function setCookieOutput(value) {
+                const el = document.getElementById('cookie-output');
+                el.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+            }
+
+            function syncCookieDomainInput() {
+                const url = document.getElementById('url-input').value.trim();
+                const input = document.getElementById('cookie-domain-input');
+                if (!url) return;
+
+                try {
+                    input.value = new URL(url).hostname;
+                } catch (_) {
+                    input.value = url;
+                }
+            }
+
+            function bindPassiveUi() {
+                document.getElementById('url-input').addEventListener('input', syncCookieDomainInput);
+
+                document.querySelectorAll('.preset-btn').forEach((el) => {
+                    el.addEventListener('click', () => {
+                        document.getElementById('url-input').value = el.dataset.url;
+                        syncCookieDomainInput();
+                    });
+                });
+            }
+
             // ---- 采集 ----
             async function runScrape() {
                 const url = document.getElementById('url-input').value.trim();
@@ -458,21 +567,81 @@
                 }
             }
 
+            async function readPageCookies() {
+                const url = document.getElementById('url-input').value.trim();
+                if (!url || !pg) return;
+                if (!/^https?:\/\//.test(url)) {
+                    setCookieOutput('请输入 http:// 或 https:// 开头的目标页面 URL');
+                    return;
+                }
+
+                const btn = document.getElementById('page-cookie-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner"></span>读取中…';
+                setCookieOutput('正在读取当前页面 Cookies…');
+
+                let tabId = null;
+                try {
+                    tabId = await pg.openTab(url);
+                    const cookies = await pg.getCookies(tabId);
+                    setCookieOutput({
+                        mode: 'page',
+                        url,
+                        count: cookies.length,
+                        cookies,
+                    });
+                } catch (e) {
+                    setCookieOutput(`读取失败：${e.message || String(e)}`);
+                } finally {
+                    if (tabId != null) pg.closeTab(tabId);
+                    btn.disabled = false;
+                    btn.textContent = '读取当前页面 Cookies';
+                }
+            }
+
+            async function readDomainCookies() {
+                const domain = document.getElementById('cookie-domain-input').value.trim();
+                if (!domain || !pg) return;
+
+                const btn = document.getElementById('domain-cookie-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner"></span>读取中…';
+                setCookieOutput('正在按域名读取 Cookies…');
+
+                try {
+                    const cookies = await pg.getCookiesByDomain(domain);
+                    setCookieOutput({
+                        mode: 'domain',
+                        domain,
+                        count: cookies.length,
+                        cookies,
+                    });
+                } catch (e) {
+                    setCookieOutput(`读取失败：${e.message || String(e)}`);
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = '按域名读取';
+                }
+            }
+
             function matchPluginName(url) {
                 if (/item\.jd\.com/.test(url)) return 'jd-product';
                 if (/pro\.m\.jd\.com\/mall\/active\//.test(url)) return 'jd-rank-list';
                 if (/item\.taobao\.com/.test(url)) return 'taobao-product';
+                if (/youtube\.com\/watch/.test(url)) return 'youtube-cookies';
                 return '未知插件';
             }
 
             // ---- 初始化 ----
             (async () => {
                 setStatus('', '检测扩展中…');
+                bindPassiveUi();
+                syncCookieDomainInput();
 
                 pg = await PageGrab.init({
-                    minVersion: '1.0.0',
+                    minVersion: '1.0.1',
                     downloadUrl:
-                        'https://github.com/goodyorkye/page-grab/raw/refs/heads/main/dist/pagegrab-extension-v1.0.0.zip',
+                        'https://github.com/goodyorkye/page-grab/raw/refs/heads/main/dist/pagegrab-extension-v1.0.1.zip',
                 });
 
                 if (!pg) {
@@ -483,22 +652,21 @@
                 pg.use(JDProductPlugin);
                 pg.use(JDRankListPlugin);
                 pg.use(TaobaoProductPlugin);
+                pg.use(YouTubeCookiesPlugin);
 
                 setStatus('ok', `扩展已就绪，版本 ${(await PageGrab.detect()).version}`);
 
                 const btn = document.getElementById('scrape-btn');
                 btn.disabled = false;
+                document.getElementById('page-cookie-btn').disabled = false;
+                document.getElementById('domain-cookie-btn').disabled = false;
 
                 btn.addEventListener('click', runScrape);
+                document.getElementById('page-cookie-btn').addEventListener('click', readPageCookies);
+                document.getElementById('domain-cookie-btn').addEventListener('click', readDomainCookies);
 
                 document.getElementById('url-input').addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') runScrape();
-                });
-
-                document.querySelectorAll('.preset-btn').forEach((el) => {
-                    el.addEventListener('click', () => {
-                        document.getElementById('url-input').value = el.dataset.url;
-                    });
                 });
             })();
         </script>

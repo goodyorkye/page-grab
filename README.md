@@ -8,6 +8,7 @@
 - **不遗漏初始请求**：在页面加载前挂载调试器，初始 HTML 文档请求同样可被捕获
 - **脚本执行**：在目标页面执行任意 JS 表达式，获取运行时数据
 - **DOM 查询**：通过 CSS 选择器获取元素内容，支持 `outerHTML`、`textContent`、`value` 等属性
+- **Cookie 读取**：可读取当前采集页面可见的全部 Cookie，或按域名批量获取浏览器中的 Cookie
 - **渲染后 HTML**：手动触发获取 JS 执行后的完整 DOM，而非网络返回的原始 HTML
 - **无 URL 限制**：控制页面可在局域网任意 IP/地址运行
 - **安装检测**：内置插件安装检测与版本校验，未安装时自动弹出引导提示
@@ -46,7 +47,7 @@ Background Service Worker
 默认输出路径为：
 
 ```bash
-dist/pagegrab-extension-v1.0.0.zip
+dist/pagegrab-extension-v1.0.1.zip
 ```
 
 其中版本号会自动读取 `extension/manifest.json` 中的 `version` 字段。
@@ -65,6 +66,8 @@ dist/pagegrab-extension-v1.0.0.zip
 
 演示页需要通过 HTTP 服务访问（不支持 `file://` 直接打开）：
 
+#### 方式 A：在 `demo/` 目录启动
+
 ```bash
 cd demo
 npx serve .
@@ -72,7 +75,43 @@ npx serve .
 python3 -m http.server 8080
 ```
 
-如果使用 `npx serve .`，通常访问 `http://localhost:3000`；如果使用 `python3 -m http.server 8080`，则访问 `http://localhost:8080`。在输入框填入目标 URL，点击「打开采集」即可。
+如果使用 `npx serve .`，通常访问 `http://localhost:3000`；如果使用 `python3 -m http.server 8080`，则访问 `http://localhost:8080`。
+
+对应地址：
+
+- `http://localhost:8080/index.html`：基础采集 / 执行控制台 / Cookie 调试
+- `http://localhost:8080/demo-plugin.html`：插件采集演示
+- `http://localhost:8080/youtube-cookies.html`：按顺序打开 YouTube 视频页与 `robots.txt`，导出 `.youtube.com` Cookie 为 Netscape 文本文件
+
+#### 方式 B：在项目根目录启动
+
+如果你希望仓库根路径就是服务根路径，可以在项目根目录执行：
+
+```bash
+python3 -m http.server 8080
+```
+
+这时 demo 页面路径会变成：
+
+- `http://127.0.0.1:8080/demo/index.html`：基础采集 / 执行控制台 / Cookie 调试
+- `http://127.0.0.1:8080/demo/demo-plugin.html`：插件采集演示
+- `http://127.0.0.1:8080/demo/youtube-cookies.html`：按顺序打开 YouTube 视频页与 `robots.txt`，导出 `.youtube.com` Cookie 为 Netscape 文本文件
+
+建议测试时直接打开带文件名的完整地址，不要只访问 `/`，这样可以避开本地浏览器缓存或旧 Service Worker 对根路径的干扰。
+
+#### 方式 C：使用 PM2 常驻启动
+
+仓库根目录提供了 `pm2` 配置文件 [`ecosystem.config.cjs`](ecosystem.config.cjs)，默认端口是 `20621`：
+
+```bash
+pm2 start ecosystem.config.cjs
+```
+
+对应测试地址：
+
+- `http://127.0.0.1:20621/demo/index.html`：基础采集 / 执行控制台 / Cookie 调试
+- `http://127.0.0.1:20621/demo/demo-plugin.html`：插件采集演示
+- `http://127.0.0.1:20621/demo/youtube-cookies.html`：YouTube Cookie 导出页
 
 ### 方式二：在自己的页面中集成
 
@@ -83,7 +122,7 @@ python3 -m http.server 8080
 <script>
   (async () => {
     const pg = await PageGrab.init({
-      minVersion: '1.0.0',
+      minVersion: '1.0.1',
       downloadUrl: 'https://your-domain.com/page-grab.zip', // 可选，填后会显示下载按钮
     })
     if (!pg) return // 未安装或版本过低，已自动弹出安装引导
@@ -104,6 +143,8 @@ python3 -m http.server 8080
     const html   = await pg.getHtml(tabId)
     const price  = await pg.querySelector(tabId, '.price', 'textContent')
     const links  = await pg.querySelectorAll(tabId, 'a', 'href')
+    const pageCookies = await pg.getCookies(tabId)
+    const domainCookies = await pg.getCookiesByDomain('example.com')
 
     // 关闭目标 tab
     pg.closeTab(tabId)
@@ -121,7 +162,7 @@ python3 -m http.server 8080
 
 ```js
 const pg = await PageGrab.init({
-  minVersion: '1.0.0',   // 可选，低于此版本会提示升级
+  minVersion: '1.0.1',   // 可选，低于此版本会提示升级
   downloadUrl: '...',    // 可选，未安装时提示弹窗中的下载链接
   timeout: 2000,         // 可选，检测超时毫秒数，默认 2000
 })
@@ -206,6 +247,32 @@ await pg.execute(tabId, '[...document.querySelectorAll("h2")].map(el => el.textC
 
 获取所有匹配元素的属性值数组。`prop` 默认为 `'outerHTML'`。
 
+#### `.getCookies(tabId)` → `Promise<Cookie[]>`
+
+获取当前采集页面可见的全部 Cookie。底层按目标 tab 当前 URL 查询，因此结果与该页面实际请求会带上的 Cookie 一致。
+
+#### `.getCookiesByDomain(domain)` → `Promise<Cookie[]>`
+
+按域名获取浏览器中匹配该域的全部 Cookie。`domain` 可传 `example.com`，也可直接传完整 URL（会自动取 hostname）。
+
+**Cookie 数据结构：**
+
+```ts
+{
+  domain: string
+  expirationDate?: number
+  hostOnly: boolean
+  httpOnly: boolean
+  name: string
+  path: string
+  sameSite?: string
+  secure: boolean
+  session: boolean
+  storeId: string
+  value: string
+}
+```
+
 ---
 
 ## 已知限制
@@ -228,7 +295,7 @@ await pg.execute(tabId, '[...document.querySelectorAll("h2")].map(el => el.textC
 // <script src="plugins/jd-product.js"></script>
 // <script src="plugins/jd-rank-list.js"></script>
 
-const pg = await PageGrab.init({ minVersion: '1.0.0' })
+const pg = await PageGrab.init({ minVersion: '1.0.1' })
 pg.use(JDProductPlugin)
 pg.use(JDRankListPlugin)
 pg.use(TaobaoProductPlugin)
@@ -287,6 +354,7 @@ const MyPlugin = {
 | [`demo/plugins/jd-product.js`](demo/plugins/jd-product.js) | 京东商品详情 | DOM + 价格/评价接口拦截 |
 | [`demo/plugins/jd-rank-list.js`](demo/plugins/jd-rank-list.js) | 京东榜单页 | 从原始 HTML 的 `window.__react_data__` 提取榜单商品列表 |
 | [`demo/plugins/taobao-product.js`](demo/plugins/taobao-product.js) | 淘宝商品详情 | mtop 网关接口拦截 |
+| [`demo/plugins/youtube-cookies.js`](demo/plugins/youtube-cookies.js) | YouTube 视频页 | 顺序打开视频页与 `robots.txt`，导出 `.youtube.com` Cookie 文本 |
 | [`demo/plugins/plugin.template.js`](demo/plugins/plugin.template.js) | — | 插件开发模板 |
 
 > 电商平台页面结构和接口路径随版本迭代会变化，内置插件提供的是实现思路和常见字段路径，建议通过演示页的 Network 面板确认实际接口路径后调整。
@@ -302,11 +370,15 @@ page-grab/
 └── demo/               演示工具 & 客户端 SDK
     ├── pagegrab.js     控制页面 SDK（含插件系统）
     ├── index.html      可视化测试页面
+    ├── demo-plugin.html 插件采集演示
+    ├── youtube-cookies.html YouTube Cookie 导出页
+    ├── youtube-cookie-utils.js YouTube Cookie 文本格式化工具
     └── plugins/        采集插件（与 pagegrab.js 同级）
         ├── plugin.template.js  插件开发模板
         ├── jd-product.js       京东商品
         ├── jd-rank-list.js     京东榜单
-        └── taobao-product.js   淘宝商品
+        ├── taobao-product.js   淘宝商品
+        └── youtube-cookies.js  YouTube Cookie 导出
 ```
 
 ## License
